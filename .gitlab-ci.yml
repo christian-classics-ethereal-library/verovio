@@ -1,0 +1,57 @@
+build_emscripten:
+  tags:
+    - docker
+  image: trzeci/emscripten:1.39.10-upstream
+  script:
+    - pushd emscripten
+    - ./buildToolkit -c -H -w -M
+    - ls build
+    - popd
+    - git archive $(git rev-parse HEAD) -o verovio.tar.gz
+    - ls emscripten/build/verovio-toolkit-wasm.js
+  artifacts:
+    paths:
+      - emscripten/build/verovio-toolkit-wasm.js
+      - COPYING
+      - COPYING.LESSER
+      - verovio.tar.gz
+  cache:
+    key: '1.39.10'
+    paths:
+      - emscripten/data
+      - emscripten/build
+
+build_cmake:
+  tags:
+    - docker
+  image: buildpack-deps:stable-scm
+  before_script:
+    - (apt-get update || apt-get update) && apt-get install -y git cmake build-essential
+  script:
+    - pushd tools
+    - cmake ../cmake && make
+    - popd
+    - ls tools/verovio
+  artifacts:
+    paths:
+      - data
+      - tools/verovio
+  cache:
+    paths:
+      - tools/CMakeCache.txt
+      - tools/CMakeFiles
+      - tools/Makefile
+      - tools/cmake_install.cmake
+      - tools/install_manifest.txt
+
+build_python:
+  tags:
+    - docker
+  image: debian:buster
+  before_script:
+    - (apt-get update || apt-get update) && apt-get install -y git python3 swig python3-setuptools python3-dev build-essential
+  script:
+    - python3 setup.py build_ext --inplace
+  artifacts:
+    paths:
+      - bindings/python
