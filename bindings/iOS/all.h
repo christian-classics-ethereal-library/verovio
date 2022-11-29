@@ -52,6 +52,7 @@
 #import <VerovioFramework/score.h>
 #import <VerovioFramework/tie.h>
 #import <VerovioFramework/gracegrp.h>
+#import <VerovioFramework/toolkitdef.h>
 #import <VerovioFramework/ligature.h>
 #import <VerovioFramework/symbol.h>
 #import <VerovioFramework/metersig.h>
@@ -170,6 +171,7 @@
 #import <VerovioFramework/editortoolkit.h>
 #import <VerovioFramework/dynam.h>
 #import <VerovioFramework/svgdevicecontext.h>
+#import <VerovioFramework/graphic.h>
 #import <VerovioFramework/mspace.h>
 #import <VerovioFramework/turn.h>
 #import <VerovioFramework/drawinginterface.h>

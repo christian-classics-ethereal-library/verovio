@@ -902,7 +902,9 @@ void View::DrawKeySig(DeviceContext *dc, LayerElement *element, Layer *layer, St
 
     // C major (0) key sig and no cancellation
     else if ((keySig->GetAccidCount() == 0) && (keySig->m_drawingCancelAccidCount == 0)) {
+        dc->StartGraphic(element, "", element->GetID());
         keySig->SetEmptyBB();
+        dc->EndGraphic(element, this);
         return;
     }
 
@@ -1655,7 +1657,7 @@ void View::DrawSyl(DeviceContext *dc, LayerElement *element, Layer *layer, Staff
         params.m_width = syl->GetDrawingWidth();
         params.m_height = syl->GetDrawingHeight();
     }
-    assert(dc->GetFont());
+    assert(dc->HasFont());
     params.m_pointSize = dc->GetFont()->GetPointSize();
 
     dc->StartText(ToDeviceContextX(params.m_x), ToDeviceContextY(params.m_y));
@@ -1664,15 +1666,24 @@ void View::DrawSyl(DeviceContext *dc, LayerElement *element, Layer *layer, Staff
     if (syl->GetCon() == sylLog_CON_b) {
         dc->ReactivateGraphic();
         dc->DeactivateGraphic();
-        FontInfo vrvTxt;
-        vrvTxt.SetPointSize(dc->GetFont()->GetPointSize() * m_doc->GetMusicToLyricFontSizeRatio());
-        vrvTxt.SetFaceName(m_doc->GetOptions()->m_font.GetValue());
-        vrvTxt.SetSmuflFont(true);
-        dc->SetFont(&vrvTxt);
-        std::u32string str;
-        str.push_back(SMUFL_E551_lyricsElision);
-        dc->DrawText(UTF32to8(str), str);
-        dc->ResetFont();
+        if (m_doc->GetOptions()->m_lyricElision.GetValue() == ELISION_unicode) {
+            std::u32string str;
+            str.push_back(UNICODE_UNDERTIE);
+            dc->DrawText(UTF32to8(str), str);
+        }
+        else {
+            FontInfo vrvTxt;
+            assert(dc->HasFont());
+            vrvTxt.SetPointSize(dc->GetFont()->GetPointSize() * m_doc->GetMusicToLyricFontSizeRatio());
+            vrvTxt.SetFaceName(m_doc->GetOptions()->m_font.GetValue());
+            std::u32string str;
+            str.push_back(m_doc->GetOptions()->m_lyricElision.GetValue());
+            bool isFallbackNeeded = (m_doc->GetResources()).IsSmuflFallbackNeeded(str);
+            vrvTxt.SetSmuflWithFallback(isFallbackNeeded);
+            dc->SetFont(&vrvTxt);
+            dc->DrawText(UTF32to8(str), str);
+            dc->ResetFont();
+        }
         dc->ReactivateGraphic();
         dc->DeactivateGraphicY();
     }
@@ -1869,6 +1880,7 @@ int View::DrawMeterSigFigures(DeviceContext *dc, int x, int y, MeterSig *meterSi
         int yDen = y - m_doc->GetDrawingDoubleUnit(glyphSize);
         // In case when one of the handwritten fonts is used, we need to make sure that meterSig is displayed properly
         // for it, based on the height of corresponding glyphs
+        assert(dc->HasFont());
         FontInfo *fontInfo = dc->GetFont();
         std::vector<std::string> handwrittenFonts = m_doc->GetOptions()->m_handwrittenFont.GetValue();
         if (const auto it = std::find(handwrittenFonts.begin(), handwrittenFonts.end(), fontInfo->GetFaceName());
