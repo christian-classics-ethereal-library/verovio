@@ -1,6 +1,7 @@
 #ifndef all_h
 #define all_h
 #import <VerovioFramework/beam.h>
+#import <VerovioFramework/altsyminterface.h>
 #import <VerovioFramework/timeinterface.h>
 #import <VerovioFramework/chord.h>
 #import <VerovioFramework/pghead2.h>
@@ -45,6 +46,7 @@
 #import <VerovioFramework/text.h>
 #import <VerovioFramework/space.h>
 #import <VerovioFramework/vrv.h>
+#import <VerovioFramework/ornam.h>
 #import <VerovioFramework/sb.h>
 #import <VerovioFramework/clef.h>
 #import <VerovioFramework/layerdef.h>
@@ -89,7 +91,6 @@
 #import <VerovioFramework/beamspan.h>
 #import <VerovioFramework/editortoolkit_mensural.h>
 #import <VerovioFramework/add.h>
-#import <VerovioFramework/att.h>
 #import <VerovioFramework/durationinterface.h>
 #import <VerovioFramework/subst.h>
 #import <VerovioFramework/staffdef.h>
@@ -108,9 +109,12 @@
 #import <VerovioFramework/facsimileinterface.h>
 #import <VerovioFramework/layerelement.h>
 #import <VerovioFramework/accid.h>
+#import <VerovioFramework/symboltable.h>
+#import <VerovioFramework/symboldef.h>
 #import <VerovioFramework/controlelement.h>
 #import <VerovioFramework/octave.h>
 #import <VerovioFramework/iomusxml.h>
+#import <VerovioFramework/interface.h>
 #import <VerovioFramework/git_commit.h>
 #import <VerovioFramework/rend.h>
 #import <VerovioFramework/pagemilestone.h>
@@ -133,8 +137,6 @@
 #import <VerovioFramework/metersiggrp.h>
 #import <VerovioFramework/custos.h>
 #import <VerovioFramework/mrpt2.h>
-#import <VerovioFramework/attalternates.h>
-#import <VerovioFramework/attdef.h>
 #import <VerovioFramework/unclear.h>
 #import <VerovioFramework/mnum.h>
 #import <VerovioFramework/dot.h>
@@ -178,6 +180,7 @@
 #import <VerovioFramework/systemelement.h>
 #import <VerovioFramework/timestamp.h>
 #import <VerovioFramework/glyph.h>
+#import <VerovioFramework/libmei.h>
 #import <VerovioFramework/dir.h>
 #import <VerovioFramework/scoredefinterface.h>
 #import <VerovioFramework/verse.h>

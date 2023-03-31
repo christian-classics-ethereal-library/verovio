@@ -12,17 +12,18 @@
 #include <functional>
 #include <iterator>
 #include <map>
-#include <random>
 #include <string>
 
 //----------------------------------------------------------------------------
 
 #include "attclasses.h"
+#include "attmodule.h"
 #include "boundingbox.h"
 #include "vrvdef.h"
 
 namespace vrv {
 
+class AltSymInterface;
 class AreaPosInterface;
 class Doc;
 class DurationInterface;
@@ -128,6 +129,8 @@ public:
      * @name Getter to interfaces
      */
     ///@{
+    virtual AltSymInterface *GetAltSymInterface() { return NULL; }
+    virtual const AltSymInterface *GetAltSymInterface() const { return NULL; }
     virtual AreaPosInterface *GetAreaPosInterface() { return NULL; }
     virtual const AreaPosInterface *GetAreaPosInterface() const { return NULL; }
     virtual BeamDrawingInterface *GetBeamDrawingInterface() { return NULL; }
@@ -234,7 +237,7 @@ public:
     /**
      * Reset pointers after a copy and assignment constructor call.
      * This methods has to be called expicitly when overriden because it is not called from the constructors.
-     * Do not forget to call base-class equivalent whenever applicable (e.g, with more than one hierarchy level).
+     * Do not forget to call base-class equivalent whenever applicable (e.g., with more than one hierarchy level).
      */
     virtual void CloneReset();
 
@@ -643,9 +646,11 @@ public:
     // Static methods //
     //----------------//
 
-    static void SeedID(unsigned int seed = 0);
+    static void SeedID(uint32_t seed = 0);
 
-    static std::string GenerateRandID();
+    static std::string GenerateHashID();
+
+    static uint32_t Hash(uint32_t number, bool reverse = false);
 
     static bool sortByUlx(Object *a, Object *b);
 
@@ -786,7 +791,7 @@ public:
     virtual int ConvertToUnCastOffMensural(FunctorParams *) { return FUNCTOR_CONTINUE; }
 
     /**
-     * Convert analytical markup (@fermata, @tie) to elements.
+     * Convert analytical markup (\@fermata, \@tie) to elements.
      * See Doc::ConvertMarkupAnalyticalDoc
      */
     virtual int ConvertMarkupAnalytical(FunctorParams *) { return FUNCTOR_CONTINUE; }
@@ -1118,6 +1123,11 @@ public:
     virtual int AdjustTupletNumOverlap(FunctorParams *) const { return FUNCTOR_CONTINUE; }
 
     /**
+     * Adjust the Y position of tuplets by inner slurs
+     */
+    virtual int AdjustTupletWithSlurs(FunctorParams *) { return FUNCTOR_CONTINUE; }
+
+    /**
      * Adjust the position of the StaffAlignment.
      */
     virtual int AdjustYPos(FunctorParams *) { return FUNCTOR_CONTINUE; }
@@ -1255,22 +1265,27 @@ public:
     virtual int ScoreDefSetGrpSym(FunctorParams *) { return FUNCTOR_CONTINUE; }
 
     /**
+     * Match @altsym element to the corresponding symbolDef.
+     */
+    virtual int PrepareAltSym(FunctorParams *functorParams);
+
+    /**
      * Associate LayerElement with @facs to the appropriate zone
      */
     virtual int PrepareFacsimile(FunctorParams *functorParams);
 
     /**
-     * Match linking element (e.g, @next).
+     * Match linking element (e.g., \@next).
      */
     virtual int PrepareLinking(FunctorParams *functorParams);
 
     /**
-     * Prepare list of elements in the @plist.
+     * Prepare list of elements in the \@plist.
      */
     virtual int PreparePlist(FunctorParams *functorParams);
 
     /**
-     * Match elements of @plist
+     * Match elements of \@plist
      */
     virtual int PrepareProcessPlist(FunctorParams *functorParams);
 
@@ -1303,7 +1318,7 @@ public:
 
     /**
      * Match start and end for TimeSpanningInterface elements with tstamp(2) attributes.
-     * It is performed only on TimeSpanningInterface elements withouth @startid (or @endid).
+     * It is performed only on TimeSpanningInterface elements withouth \@startid (or \@endid).
      * It adds to the start (and end) measure a TimeStampAttr to the Measure::m_tstamps.
      */
     virtual int PrepareTimestamps(FunctorParams *) { return FUNCTOR_CONTINUE; }
@@ -1637,7 +1652,7 @@ private:
 
     /**
      * A flag indicating if the Object represents an attribute in the original MEI.
-     * For example, a Artic child in Note for an original @artic
+     * For example, a Artic child in Note for an original \@artic
      */
     bool m_isAttribute;
 
@@ -1656,9 +1671,9 @@ private:
     static thread_local unsigned long s_objectCounter;
 
     /**
-     * Pseudo random number engine for ID generation
+     * XML id counter
      */
-    static thread_local std::mt19937 s_randomGenerator;
+    static thread_local uint32_t s_xmlIDCounter;
 };
 
 //----------------------------------------------------------------------------
@@ -1894,8 +1909,8 @@ public:
     void GetClassIds(const std::vector<std::string> &classStrings, std::vector<ClassId> &classIds);
 
 public:
-    MapOfStrConstructors s_ctorsRegistry;
-    MapOfStrClassIds s_classIdsRegistry;
+    static thread_local MapOfStrConstructors s_ctorsRegistry;
+    static thread_local MapOfStrClassIds s_classIdsRegistry;
 };
 
 //----------------------------------------------------------------------------
@@ -1909,7 +1924,7 @@ public:
      */
     ClassRegistrar(std::string name, ClassId classId)
     {
-        ObjectFactory::GetInstance()->Register(name, classId, [](void) -> Object * { return new T(); });
+        ObjectFactory::GetInstance()->Register(name, classId, []() -> Object * { return new T(); });
     }
 };
 

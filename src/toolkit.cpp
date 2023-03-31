@@ -79,8 +79,6 @@ Toolkit::Toolkit(bool initFont)
 
     m_options = m_doc.GetOptions();
 
-    m_skipLayoutOnLoad = false;
-
     m_editorToolkit = NULL;
 
 #ifndef NO_RUNTIME
@@ -152,10 +150,6 @@ bool Toolkit::SetOutputTo(std::string const &outputTo)
         m_outputTo = MEI;
     }
     else if (outputTo == "mei-pb") {
-        m_outputTo = MEI;
-    }
-    else if (outputTo == "pb-mei") {
-        LogWarning("Output to 'pb-mei' is deprecated, use 'mei-pb' instead.");
         m_outputTo = MEI;
     }
     else if (outputTo == "midi") {
@@ -252,15 +246,18 @@ FileFormat Toolkit::IdentifyInputFrom(const std::string &data)
     if (data[0] == '*' || data[0] == '!') {
         return HUMDRUM;
     }
-    if (data[0] == 'X' || data[0] == '%') {
+    if (data[0] == 'X') {
         return ABC;
+    }
+    if (data[0] == '%' && data.size() > 1) {
+        return (data[1] == 'a') ? ABC : PAE;
     }
     if ((unsigned char)data[0] == 0xff || (unsigned char)data[0] == 0xfe) {
         // Handle UTF-16 content here later.
         std::cerr << "Warning: Cannot yet auto-detect format of UTF-16 data files." << std::endl;
         return UNKNOWN;
     }
-    size_t searchLimit = 600;
+    const int searchLimit = 600;
     std::string initial = data.substr(0, searchLimit);
     if (data[0] == '<') {
         // <mei> == root node for standard organization of MEI data
@@ -421,7 +418,7 @@ bool Toolkit::LoadZipData(const std::vector<unsigned char> &bytes)
 
     std::string filename;
     // Look for the meta file in the zip
-    for (auto &member : file.infolist()) {
+    for (miniz_cpp::zip_info &member : file.infolist()) {
         if (member.filename == "META-INF/container.xml") {
             std::string container = file.read(member.filename);
             // Find the file name with an xpath query
@@ -522,6 +519,7 @@ bool Toolkit::LoadData(const std::string &data)
         if (this->GetOutputTo() == HUMDRUM) {
             // Humdrum data will be output (post-filtering data),
             // So not continuing converting to SVG.
+            delete input;
             return true;
         }
 
@@ -548,6 +546,7 @@ bool Toolkit::LoadData(const std::string &data)
         this->SetHumdrumBuffer(tempinput->GetHumdrumString().c_str());
 
         if (this->GetOutputTo() == HUMDRUM) {
+            delete tempinput;
             return true;
         }
 
@@ -745,7 +744,7 @@ bool Toolkit::LoadData(const std::string &data)
     // to be converted
     if (m_doc.GetType() == Transcription || m_doc.GetType() == Facs) breaks = BREAKS_none;
 
-    if (!m_skipLayoutOnLoad && (breaks != BREAKS_none)) {
+    if (breaks != BREAKS_none) {
         if (input->GetLayoutInformation() == LAYOUT_ENCODED
             && (breaks == BREAKS_encoded || breaks == BREAKS_line || breaks == BREAKS_smart)) {
             if (breaks == BREAKS_encoded) {
@@ -795,11 +794,6 @@ bool Toolkit::LoadData(const std::string &data)
 #endif
 
     return true;
-}
-
-void Toolkit::SkipLayoutOnLoad(bool value)
-{
-    m_skipLayoutOnLoad = value;
 }
 
 std::string Toolkit::GetMEI(const std::string &jsonOptions)
@@ -940,7 +934,7 @@ std::string Toolkit::GetOptions(bool defaultValues) const
         const OptionJson *optJson = dynamic_cast<const OptionJson *>(iter->second);
 
         if (optDbl) {
-            double dblValue = (defaultValues) ? optDbl->GetDefault() : optDbl->GetValue();
+            double dblValue = (defaultValues) ? optDbl->GetDefault() : optDbl->GetUnfactoredValue();
             jsonxx::Value value(dblValue);
             value.precision_ = 2;
             o << iter->first << value;
@@ -955,10 +949,9 @@ std::string Toolkit::GetOptions(bool defaultValues) const
         }
         else if (optArray) {
             std::vector<std::string> strValues = (defaultValues) ? optArray->GetDefault() : optArray->GetValue();
-            std::vector<std::string>::iterator strIter;
             jsonxx::Array values;
-            for (strIter = strValues.begin(); strIter != strValues.end(); ++strIter) {
-                values << (*strIter);
+            for (const std::string &strValue : strValues) {
+                values << strValue;
             }
             o << iter->first << values;
         }
@@ -994,7 +987,7 @@ std::string Toolkit::GetAvailableOptions() const
     grps << "0-base" << m_options->GetBaseOptGrp();
 
     const std::vector<OptionGrp *> *optionGrps = m_options->GetGrps();
-    for (auto const &optionGrp : *optionGrps) {
+    for (OptionGrp *optionGrp : *optionGrps) {
 
         jsonxx::Object grp;
         grp << "name" << optionGrp->GetLabel();
@@ -1003,7 +996,7 @@ std::string Toolkit::GetAvailableOptions() const
 
         const std::vector<Option *> *options = optionGrp->GetOptions();
 
-        for (auto const &option : *options) {
+        for (Option *option : *options) {
             // Reading json from file is not supported in toolkit
             const OptionJson *optJson = dynamic_cast<const OptionJson *>(option);
             if (optJson && (optJson->GetSource() == JsonSource::FilePath)) continue;
@@ -1082,8 +1075,7 @@ bool Toolkit::SetOptions(const std::string &jsonOptions)
         else if (json.has<jsonxx::Array>(iter->first)) {
             jsonxx::Array values = json.get<jsonxx::Array>(iter->first);
             std::vector<std::string> strValues;
-            int i;
-            for (i = 0; i < (int)values.size(); ++i) {
+            for (int i = 0; i < (int)values.size(); ++i) {
                 if (values.has<jsonxx::String>(i)) strValues.push_back(values.get<jsonxx::String>(i));
                 // LogDebug("String: %s", values.get<jsonxx::String>(i).c_str());
             }
@@ -1166,7 +1158,7 @@ std::string Toolkit::GetElementAttr(const std::string &xmlId)
     }
     // If not found at all
     if (!element) {
-        LogInfo("Element with id '%s' could not be found", xmlId.c_str());
+        LogWarning("Element '%s' not found", xmlId.c_str());
         return o.json();
     }
 
@@ -1185,10 +1177,12 @@ std::string Toolkit::GetElementAttr(const std::string &xmlId)
 
 std::string Toolkit::GetNotatedIdForElement(const std::string &xmlId)
 {
-    if (m_doc.m_expansionMap.HasExpansionMap())
+    if (m_doc.m_expansionMap.HasExpansionMap()) {
         return m_doc.m_expansionMap.GetExpansionIDsForElement(xmlId).front();
-    else
+    }
+    else {
         return xmlId;
+    }
 }
 
 std::string Toolkit::GetExpansionIdsForElement(const std::string &xmlId)
@@ -1220,9 +1214,8 @@ std::string Toolkit::EditInfo()
 std::string Toolkit::GetLog()
 {
     std::string str;
-    std::vector<std::string>::iterator iter;
-    for (iter = logBuffer.begin(); iter != logBuffer.end(); ++iter) {
-        str += (*iter);
+    for (const std::string &logStr : logBuffer) {
+        str += logStr;
     }
     return str;
 }
@@ -1561,7 +1554,7 @@ std::string Toolkit::GetElementsAtTime(int millisec)
 
     // Get the pageNo from the first note (if any)
     int pageNo = -1;
-    Page *page = dynamic_cast<Page *>(measure->GetFirstAncestor(PAGE));
+    Page *page = vrv_cast<Page *>(measure->GetFirstAncestor(PAGE));
     if (page) pageNo = page->GetIdx() + 1;
 
     NoteOrRestOnsetOffsetComparison matchTime(millisec - measureTimeOffset);
@@ -1571,21 +1564,21 @@ std::string Toolkit::GetElementsAtTime(int millisec)
     measure->FindAllDescendantsByComparison(&notesOrRests, &matchTime);
 
     // Fill the JSON object
-    for (auto const item : notesOrRests) {
-        if (item->Is(NOTE)) {
-            noteArray << item->GetID();
-            Note *note = vrv_cast<Note *>(item);
+    for (Object *object : notesOrRests) {
+        if (object->Is(NOTE)) {
+            noteArray << object->GetID();
+            Note *note = vrv_cast<Note *>(object);
             assert(note);
             Chord *chord = note->IsChordTone();
             if (chord) chords.push_back(chord);
         }
-        else if (item->Is(REST)) {
-            restArray << item->GetID();
+        else if (object->Is(REST)) {
+            restArray << object->GetID();
         }
     }
     chords.unique();
-    for (auto const item : chords) {
-        chordArray << item->GetID();
+    for (Object *object : chords) {
+        chordArray << object->GetID();
     }
 
     o << "notes" << noteArray;
@@ -1640,9 +1633,10 @@ int Toolkit::GetPageWithElement(const std::string &xmlId)
 {
     Object *element = m_doc.FindDescendantByID(xmlId);
     if (!element) {
+        LogWarning("Element '%s' not found", xmlId.c_str());
         return 0;
     }
-    Page *page = dynamic_cast<Page *>(element->GetFirstAncestor(PAGE));
+    Page *page = vrv_cast<Page *>(element->GetFirstAncestor(PAGE));
     if (!page) {
         return 0;
     }
@@ -1756,13 +1750,13 @@ std::string Toolkit::GetMIDIValuesForElement(const std::string &xmlId)
     this->ResetLogBuffer();
 
     Object *element = m_doc.FindDescendantByID(xmlId);
+    jsonxx::Object o;
 
     if (!element) {
         LogWarning("Element '%s' not found", xmlId.c_str());
-        return 0;
+        return o.json();
     }
 
-    jsonxx::Object o;
     if (element->Is(NOTE)) {
         if (!m_doc.HasTimemap()) {
             // generate MIDI timemap before progressing
@@ -1787,7 +1781,7 @@ std::string Toolkit::GetMIDIValuesForElement(const std::string &xmlId)
 void Toolkit::SetHumdrumBuffer(const char *data)
 {
     this->ClearHumdrumBuffer();
-    size_t size = strlen(data) + 1;
+    int size = (int)strlen(data) + 1;
     m_humdrumBuffer = (char *)malloc(size);
     if (!m_humdrumBuffer) {
         // something went wrong
@@ -1857,6 +1851,12 @@ void Toolkit::ClearHumdrumBuffer()
         m_humdrumBuffer = NULL;
     }
 #endif
+}
+
+void Toolkit::SetInputFrom(FileFormat format)
+{
+    LogWarning("This method is deprecated. Use SetInputFormat(std::string) instead.");
+    m_inputFrom = format;
 }
 
 std::string Toolkit::ConvertMEIToHumdrum(const std::string &meiData)

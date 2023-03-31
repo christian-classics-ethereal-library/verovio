@@ -207,7 +207,7 @@ void display_usage(const vrv::Options *options, const std::string &category)
         std::cout << "Options (marked as * are repeatable)" << std::endl;
         if ((it->first == vrv::OptionsCategory::Base) || (it->first == vrv::OptionsCategory::Full)) {
             const std::vector<vrv::Option *> *baseOptions = options->GetBaseOptions();
-            for (auto const &option : *baseOptions) {
+            for (vrv::Option *option : *baseOptions) {
                 display_option(option);
             }
         }
@@ -218,7 +218,7 @@ void display_usage(const vrv::Options *options, const std::string &category)
                 std::cout << std::endl << group->GetLabel() << std::endl;
                 const std::vector<vrv::Option *> *options = group->GetOptions();
 
-                for (auto const &option : *options) {
+                for (vrv::Option *option : *options) {
                     display_option(option);
                 }
             }
@@ -300,7 +300,7 @@ int main(int argc, char **argv)
         long_options[i].has_arg = (optBool) ? no_argument : required_argument;
         long_options[i].flag = 0;
         long_options[i].val = 0;
-        i++;
+        ++i;
     }
 
     // Concatenate the base options
@@ -313,7 +313,6 @@ int main(int argc, char **argv)
     }
 
     int c;
-    int seed = 0;
     std::string key;
     int option_index = 0;
     vrv::Option *opt = NULL;
@@ -329,15 +328,6 @@ int main(int argc, char **argv)
                     vrv::LogError("Unrecognized option %s has been skipped.", badOption.c_str());
                     continue;
                 }
-
-                // Handle deprecated options
-                /*
-                if (key == "condense-encoded") {
-                    vrv::LogWarning("Option --condense-encoded is deprecated; use --condense encoded instead");
-                    options->m_condense.SetValue("encoded");
-                    break;
-                }
-                */
 
                 if (optBool) {
                     optBool->SetValue(true);
@@ -376,17 +366,18 @@ int main(int argc, char **argv)
                 break;
 
             case 's':
-                if (!toolkit.SetScale(atoi(optarg))) {
-                    exit(1);
+                if (!options->m_scale.SetValue(optarg)) {
+                    vrv::LogWarning("Setting scale with %s failed, default value used", optarg);
                 }
                 break;
 
             case 'v': show_version = 1; break;
 
             case 'x':
-                seed = atoi(optarg);
-                options->m_xmlIdSeed.SetValue(seed);
-                vrv::Object::SeedID(seed);
+                if (!options->m_xmlIdSeed.SetValue(optarg)) {
+                    vrv::LogWarning("Setting xml id seed with %s failed, default value used", optarg);
+                }
+                vrv::Object::SeedID(options->m_xmlIdSeed.GetValue());
                 break;
 
             case 'z':
@@ -450,15 +441,12 @@ int main(int argc, char **argv)
         exit(1);
     }
 
-    if (outformat == "pb-mei") {
-        outformat = "mei-pb";
-        vrv::LogWarning("Output to 'pb-mei' is deprecated, use 'mei-pb' instead.");
-    }
     if ((outformat != "svg") && (outformat != "mei") && (outformat != "mei-basic") && (outformat != "mei-pb")
         && (outformat != "midi") && (outformat != "timemap") && (outformat != "humdrum") && (outformat != "hum")
         && (outformat != "pae")) {
         std::cerr << "Output format (" << outformat
-                  << ") can only be 'mei', 'mei-basic', 'mei-pb', 'svg', 'midi', 'humdrum' or 'pae'." << std::endl;
+                  << ") can only be 'mei', 'mei-basic', 'mei-pb', 'svg', 'midi', 'timemap', 'humdrum' or 'pae'."
+                  << std::endl;
         exit(1);
     }
 
@@ -480,9 +468,9 @@ int main(int argc, char **argv)
         outfile = removeExtension(outfile);
     }
 
-    // Skip the layout for MIDI and timemap output
+    // Skip the layout for MIDI and timemap output by setting --breaks to none
     if ((outformat == "midi") || (outformat == "timemap")) {
-        toolkit.SkipLayoutOnLoad(true);
+        toolkit.SetOptions("{'breaks': 'none'}");
     }
 
     // Load the std input or load the file

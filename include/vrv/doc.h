@@ -104,6 +104,11 @@ public:
     bool GenerateMeasureNumbers();
 
     /**
+     * Generate an MEI header
+     */
+    void GenerateMEIHeader(bool meiBasic);
+
+    /**
      * Getter and setter for the DocType.
      * The setter resets the document.
      */
@@ -221,7 +226,7 @@ public:
      * Get the default distance from the staff for the object
      * The distance is given in x * MEI UNIT
      */
-    double GetStaffDistance(const ClassId classId, int staffIndex, data_STAFFREL staffPosition);
+    data_MEASUREMENTSIGNED GetStaffDistance(const ClassId classId, int staffIndex, data_STAFFREL staffPosition);
 
     /**
      * Prepare the timemap for MIDI and timemap file export.

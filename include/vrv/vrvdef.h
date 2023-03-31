@@ -20,6 +20,8 @@
 
 #include "attdef.h"
 
+#define VRV_UNSET MEI_UNSET
+
 //----------------------------------------------------------------------------
 
 #define _USE_MATH_DEFINES // needed by Windows for math constants like "M_PI"
@@ -37,8 +39,8 @@ namespace vrv {
 //----------------------------------------------------------------------------
 
 #define VERSION_MAJOR 3
-#define VERSION_MINOR 13
-#define VERSION_REVISION 1
+#define VERSION_MINOR 15
+#define VERSION_REVISION 0
 // Adds "-dev" in the version number - should be set to false for releases
 #define VERSION_DEV false
 
@@ -121,6 +123,8 @@ enum ClassId : uint16_t {
     STAFFGRP,
     SURFACE,
     SVG,
+    SYMBOLDEF,
+    SYMBOLTABLE,
     SYSTEM,
     SYSTEM_ALIGNER,
     SYSTEM_ALIGNMENT,
@@ -189,6 +193,7 @@ enum ClassId : uint16_t {
     LV,
     MORDENT,
     MNUM,
+    ORNAM,
     OCTAVE,
     PEDAL,
     PHRASE,
@@ -276,6 +281,7 @@ enum ClassId : uint16_t {
  */
 enum InterfaceId {
     INTERFACE,
+    INTERFACE_ALT_SYM,
     INTERFACE_AREA_POS,
     INTERFACE_BOUNDARY,
     INTERFACE_DURATION,
@@ -388,9 +394,9 @@ typedef bool (*NotePredicate)(const Note *);
  * Generic int map recursive structure for storing hierachy of values
  * For example, we want to process all staves one by one, and within each staff
  * all layer one by one, and so one (lyrics, etc.). In IntTree, we can store
- * @n with all existing values (1 => 1 => 1; 2 => 1 => 1)
+ * \@n with all existing values (1 => 1 => 1; 2 => 1 => 1)
  * The stucture must be filled first and can then be used by instanciating a vector
- * of corresponding Comparison (typically AttNIntegerComparison for @n attribute).
+ * of corresponding Comparison (typically AttNIntegerComparison for \@n attribute).
  * See Doc::PrepareData for an example.
  */
 struct IntTree {
@@ -501,7 +507,7 @@ enum FunctorCode { FUNCTOR_CONTINUE = 0, FUNCTOR_SIBLINGS, FUNCTOR_STOP };
 // data.LINEWIDTHTERM factors
 //----------------------------------------------------------------------------
 
-#define LINEWIDTHTERM_factor_narrow 0.5
+#define LINEWIDTHTERM_factor_narrow 1.0
 #define LINEWIDTHTERM_factor_medium 2.0
 #define LINEWIDTHTERM_factor_wide 4.0
 
@@ -644,6 +650,12 @@ enum StemSameasDrawingRole { SAMEAS_NONE = 0, SAMEAS_UNSET, SAMEAS_PRIMARY, SAME
 //----------------------------------------------------------------------------
 
 enum SmuflTextFont { SMUFL_NONE = 0, SMUFL_FONT_SELECTED, SMUFL_FONT_FALLBACK };
+
+//----------------------------------------------------------------------------
+// Graphic ID type
+//----------------------------------------------------------------------------
+
+enum GraphicID { PRIMARY = 0, SPANNING, SYMBOLREF };
 
 //----------------------------------------------------------------------------
 // Legacy Wolfgang defines

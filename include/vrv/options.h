@@ -21,6 +21,7 @@
 #include "attalternates.h"
 #include "atttypes.h"
 #include "smufl.h"
+#include "vrvdef.h"
 
 //----------------------------------------------------------------------------
 
@@ -209,10 +210,11 @@ public:
         m_defaultValue = 0.0;
         m_minValue = 0.0;
         m_maxValue = 0.0;
+        m_definitionFactor = false;
     }
     virtual ~OptionDbl() {}
     void CopyTo(Option *option) override;
-    void Init(double defaultValue, double minValue, double maxValue);
+    void Init(double defaultValue, double minValue, double maxValue, bool definitionFactor = false);
 
     bool SetValueDbl(double value) override;
     bool SetValue(const std::string &value) override;
@@ -222,7 +224,8 @@ public:
     void Reset() override;
     bool IsSet() const override;
 
-    double GetValue() const { return m_value; }
+    double GetValue() const;
+    double GetUnfactoredValue() const;
     double GetDefault() const { return m_defaultValue; }
     double GetMin() const { return m_minValue; }
     double GetMax() const { return m_maxValue; }
@@ -237,6 +240,7 @@ private:
     double m_defaultValue;
     double m_minValue;
     double m_maxValue;
+    bool m_definitionFactor;
 };
 
 //----------------------------------------------------------------------------
@@ -254,6 +258,7 @@ public:
         m_defaultValue = 0;
         m_minValue = 0;
         m_maxValue = 0;
+        m_definitionFactor = false;
     }
     virtual ~OptionInt() {}
     void CopyTo(Option *option) override;
@@ -348,7 +353,8 @@ public:
     bool IsSet() const override;
 
 private:
-    //
+    std::string GetStr(const std::vector<std::string> &values) const;
+
 public:
     //
 private:
@@ -617,6 +623,7 @@ public:
     OptionIntMap m_footer;
     OptionIntMap m_header;
     OptionBool m_humType;
+    OptionBool m_incip;
     OptionBool m_justifyVertically;
     OptionBool m_landscape;
     OptionBool m_ligatureAsBracket;
@@ -651,7 +658,7 @@ public:
     OptionBool m_svgFormatRaw;
     OptionBool m_svgRemoveXlink;
     OptionArray m_svgAdditionalAttribute;
-    OptionInt m_unit;
+    OptionDbl m_unit;
     OptionBool m_useFacsimile;
     OptionBool m_usePgFooterForAll;
     OptionBool m_usePgHeaderForAll;
@@ -709,6 +716,7 @@ public:
     OptionDbl m_multiRestThickness;
     OptionBool m_octaveAlternativeSymbols;
     OptionDbl m_octaveLineThickness;
+    OptionBool m_octaveNoSpanningParentheses;
     OptionDbl m_pedalLineThickness;
     OptionDbl m_repeatBarLineDotSeparation;
     OptionDbl m_repeatEndingLineThickness;
@@ -746,6 +754,7 @@ public:
 
     OptionArray m_appXPathQuery;
     OptionArray m_choiceXPathQuery;
+    OptionBool m_loadSelectedMdivOnly;
     OptionBool m_mdivAll;
     OptionString m_mdivXPathQuery;
     OptionArray m_substXPathQuery;
@@ -766,6 +775,7 @@ public:
     //
     OptionDbl m_bottomMarginArtic;
     OptionDbl m_bottomMarginHarm;
+    OptionDbl m_bottomMarginOctave;
     OptionDbl m_bottomMarginPgHead;
     //
     OptionDbl m_leftMarginAccid;

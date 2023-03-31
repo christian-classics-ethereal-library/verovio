@@ -73,7 +73,9 @@ void Stem::FillAttributes(const AttStems &attSource)
         this->SetDir(attSource.GetStemDir());
     }
     if (attSource.HasStemLen()) {
-        this->SetLen(attSource.GetStemLen());
+        data_MEASUREMENTSIGNED stemLen;
+        stemLen.SetVu(attSource.GetStemLen());
+        this->SetLen(stemLen);
     }
     if (attSource.HasStemPos()) {
         this->SetPos(attSource.GetStemPos());
@@ -186,7 +188,7 @@ int Stem::AdjustSlashes(const Doc *doc, const Staff *staff, int flagOffset) cons
     if (bTrem) {
         stemMod = bTrem->GetDrawingStemMod();
     }
-    else if (this->HasDrawingStemMod() && (this->GetDrawingStemMod() < 8)) {
+    else if (this->HasDrawingStemMod() && (this->GetDrawingStemMod() < STEMMODIFIER_MAX)) {
         stemMod = this->GetDrawingStemMod();
     }
     if ((stemMod == STEMMODIFIER_NONE) || (stemMod == STEMMODIFIER_none)) return 0;
@@ -203,7 +205,13 @@ int Stem::AdjustSlashes(const Doc *doc, const Staff *staff, int flagOffset) cons
 
     const int glyphHeight = doc->GetGlyphHeight(code, staffSize, false);
     const int actualLength = std::abs(this->GetDrawingStemLen()) - lenAdjust / unit * unit;
-    const int diff = actualLength - std::abs(m_stemModRelY) - 0.5 * glyphHeight;
+    int diff = 0;
+    if ((stemMod == STEMMODIFIER_sprech) && (this->GetDrawingStemDir() == STEMDIRECTION_down)) {
+        diff = std::abs(actualLength - std::abs(m_stemModRelY));
+    }
+    else {
+        diff = actualLength - std::abs(m_stemModRelY) - 0.5 * glyphHeight;
+    }
     const int halfUnit = 0.5 * unit;
 
     int adjust = 0;
@@ -247,8 +255,8 @@ int Stem::CalcStem(FunctorParams *functorParams)
     const int unit = params->m_doc->GetDrawingUnit(staffSize);
     int baseStem = 0;
     // Use the given one if any
-    if (this->HasLen()) {
-        baseStem = this->GetLen() * -unit;
+    if (this->HasLen() && this->GetLen().GetType() == MEASUREMENTTYPE_vu) {
+        baseStem = this->GetLen().GetVu() * -unit;
     }
     // Do not adjust the baseStem for stem sameas notes (its length is in m_chordStemLength)
     else if (!params->m_isStemSameasSecondary) {
@@ -260,7 +268,7 @@ int Stem::CalcStem(FunctorParams *functorParams)
     // Even if a stem length is given we add the length of the chord content (however only if not 0)
     // Also, the given stem length is understood as being measured from the center of the note.
     // This means that it will be adjusted according to the note head (see below
-    if (!params->m_staff || !this->HasLen() || (this->GetLen() != 0)) {
+    if (!params->m_staff || !this->HasLen() || (this->GetLen().GetVu() != 0)) {
         Point p;
         if (this->GetDrawingStemDir() == STEMDIRECTION_up) {
             if (this->GetPos() == STEMPOSITION_left) {
@@ -315,7 +323,7 @@ int Stem::CalcStem(FunctorParams *functorParams)
     // Do not adjust the length with stem sameas notes or if given in the encoding
     // however, the stem will be extend with the SMuFL extension from 32th - this can be improved
     if (params->m_isStemSameasSecondary || this->HasLen()) {
-        if ((this->GetLen() == 0) && flag) flag->m_drawingNbFlags = 0;
+        if ((this->GetLen().GetVu() == 0) && flag) flag->m_drawingNbFlags = 0;
         return FUNCTOR_CONTINUE;
     }
     if ((this->GetVisible() == BOOLEAN_false) && flag) {
@@ -386,7 +394,7 @@ void Stem::CalculateStemModRelY(const Doc *doc, const Staff *staff)
     if (bTrem) {
         stemMod = bTrem->GetDrawingStemMod();
     }
-    else if (this->HasDrawingStemMod() && (this->GetDrawingStemMod() < 8)) {
+    else if (this->HasDrawingStemMod() && (this->GetDrawingStemMod() < STEMMODIFIER_MAX)) {
         stemMod = this->GetDrawingStemMod();
     }
     if ((stemMod == STEMMODIFIER_NONE) || (stemMod == STEMMODIFIER_none)) return;
@@ -400,11 +408,11 @@ void Stem::CalculateStemModRelY(const Doc *doc, const Staff *staff)
     const int noteLoc = note->GetDrawingLoc();
     int height = 2 * unit;
     switch (stemMod) {
-        case STEMMODIFIER_1slash:
-        case STEMMODIFIER_2slash:
-        case STEMMODIFIER_3slash:
-        case STEMMODIFIER_4slash:
-        case STEMMODIFIER_5slash:
+        case STEMMODIFIER_1slash: [[fallthrough]];
+        case STEMMODIFIER_2slash: [[fallthrough]];
+        case STEMMODIFIER_3slash: [[fallthrough]];
+        case STEMMODIFIER_4slash: [[fallthrough]];
+        case STEMMODIFIER_5slash: [[fallthrough]];
         case STEMMODIFIER_6slash: {
             if (noteLoc % 2 == 0) height += unit;
             height += glyphHalfHeight;
@@ -412,9 +420,9 @@ void Stem::CalculateStemModRelY(const Doc *doc, const Staff *staff)
                 height += doc->GetGlyphHeight(SMUFL_E220_tremolo1, staff->m_drawingStaffSize, false) / 2;
             break;
         }
-        case STEMMODIFIER_sprech:
+        case STEMMODIFIER_sprech: [[fallthrough]];
         case STEMMODIFIER_z: {
-            height += (noteLoc % 2) ? 3 * unit : 2 * unit;
+            height += unit;
             if (stemMod == STEMMODIFIER_sprech) height -= sign * glyphHalfHeight;
             break;
         }

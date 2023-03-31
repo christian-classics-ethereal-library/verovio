@@ -111,7 +111,9 @@ void View::DrawTabNote(DeviceContext *dc, LayerElement *element, Layer *layer, S
         std::u32string fret = note->GetTabFretString(staff->m_drawingNotationType);
 
         FontInfo fretTxt;
-        fretTxt.SetFaceName("Times");
+        if (!dc->UseGlobalStyling()) {
+            fretTxt.SetFaceName("Times");
+        }
 
         TextDrawingParams params;
         params.m_x = x;
@@ -164,7 +166,7 @@ void View::DrawTabDurSym(DeviceContext *dc, LayerElement *element, Layer *layer,
     TabDurSym *tabDurSym = dynamic_cast<TabDurSym *>(element);
     assert(tabDurSym);
 
-    TabGrp *tabGrp = dynamic_cast<TabGrp *>(tabDurSym->GetFirstAncestor(TABGRP));
+    TabGrp *tabGrp = vrv_cast<TabGrp *>(tabDurSym->GetFirstAncestor(TABGRP));
     assert(tabGrp);
 
     dc->StartGraphic(tabDurSym, "", tabDurSym->GetID());

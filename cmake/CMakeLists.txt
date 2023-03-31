@@ -38,7 +38,8 @@ include_directories(
     ../include/pugi
     ../include/zip
     ../include/vrv
-    ../libmei
+    ../libmei/dist
+    ../libmei/addons
 )
 
 if(MSVC)
@@ -147,6 +148,8 @@ if(NO_RUNTIME)
 endif()
 
 file(GLOB verovio_SRC "../src/*.cpp")
+file(GLOB libmei_dist_SRC "../libmei/dist/*.cpp")
+file(GLOB libmei_addons_SRC "../libmei/addons/*.cpp")
 file(GLOB midi_SRC "../src/midi/*.cpp")
 file(GLOB crc_SRC "../src/crc/*.cpp")
 
@@ -156,27 +159,13 @@ add_custom_target(headers SOURCES ${LibFiles})
 
 set(all_SRC
     ${verovio_SRC}
+    ${libmei_dist_SRC}
+    ${libmei_addons_SRC}
     ${hum_SRC}
     ${crc_SRC}
     ${midi_SRC}
     ../src/json/jsonxx.cc
     ../src/pugi/pugixml.cpp
-    ../libmei/attconverter.cpp
-    ../libmei/atts_analytical.cpp
-    ../libmei/atts_cmn.cpp
-    ../libmei/atts_cmnornaments.cpp
-    ../libmei/atts_critapp.cpp
-    ../libmei/atts_gestural.cpp
-    ../libmei/atts_externalsymbols.cpp
-    ../libmei/atts_facsimile.cpp
-    ../libmei/atts_frettab.cpp
-    ../libmei/atts_mei.cpp
-    ../libmei/atts_mensural.cpp
-    ../libmei/atts_midi.cpp
-    ../libmei/atts_neumes.cpp
-    ../libmei/atts_pagebased.cpp
-    ../libmei/atts_shared.cpp
-    ../libmei/atts_visual.cpp
 )
 
 ##################
@@ -192,6 +181,9 @@ if (BUILD_AS_LIBRARY)
 ###########
 
 elseif (BUILD_AS_WASM)
+    if (EMSCRIPTEN_VERSION VERSION_LESS "3.1.27")
+        message(FATAL_ERROR "You need em++ 3.1.27 or greater")
+    endif()
     message(STATUS "***** Building Verovio as WASM BC *****")
     add_library(verovio STATIC ../tools/c_wrapper.cpp ${all_SRC})
 
@@ -213,8 +205,10 @@ elseif (BUILD_AS_PYTHON)
     set(PYTHON_VERSION "3" CACHE STRING "Python Version to use")
     find_package(Python EXACT ${PYTHON_VERSION} MODULE REQUIRED)
 
-    if(PYTHON_VERSION VERSION_GREATER_EQUAL 3)
-      list(APPEND CMAKE_SWIG_FLAGS "-py3;-DPY3")
+    if(${SWIG_VERSION} VERSION_GREATER_EQUAL "4.1.0")
+        list(APPEND CMAKE_SWIG_FLAGS "-doxygen")
+    else()
+        list(APPEND CMAKE_SWIG_FLAGS "-py3;-DPY3")
     endif()
 
     set_source_files_properties(../bindings/python/verovio.i PROPERTIES CPLUSPLUS ON)

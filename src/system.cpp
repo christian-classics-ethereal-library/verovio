@@ -30,6 +30,7 @@
 #include "staff.h"
 #include "syl.h"
 #include "systemmilestone.h"
+#include "tempo.h"
 #include "trill.h"
 #include "verse.h"
 #include "vrv.h"
@@ -146,7 +147,12 @@ int System::GetMinimumSystemSpacing(const Doc *doc) const
     if (!spacingSystem.IsSet()) {
         assert(m_drawingScoreDef);
         if (m_drawingScoreDef->HasSpacingSystem()) {
-            return m_drawingScoreDef->GetSpacingSystem() * doc->GetDrawingUnit(100);
+            if (m_drawingScoreDef->GetSpacingSystem().GetType() == MEASUREMENTTYPE_px) {
+                return m_drawingScoreDef->GetSpacingSystem().GetPx();
+            }
+            else {
+                return m_drawingScoreDef->GetSpacingSystem().GetVu() * doc->GetDrawingUnit(100);
+            }
         }
     }
 
@@ -225,7 +231,7 @@ bool System::HasMixedDrawingStemDir(const LayerElement *start, const LayerElemen
     // Now we can look for chords and note
     ClassIdsComparison matchType({ CHORD, NOTE });
     ListOfConstObjects children;
-    for (auto &measure : measures) {
+    for (const Object *measure : measures) {
         const Object *curStart = (measure == measureStart) ? start : measure->GetFirst();
         const Object *curEnd = (measure == measureEnd) ? end : measure->GetLast();
         measure->FindAllDescendantsBetween(&children, &matchType, curStart, curEnd, false);
@@ -238,10 +244,10 @@ bool System::HasMixedDrawingStemDir(const LayerElement *start, const LayerElemen
 
     data_STEMDIRECTION stemDir = STEMDIRECTION_NONE;
 
-    for (auto &child : children) {
-        const Layer *layer = vrv_cast<const Layer *>((child)->GetFirstAncestor(LAYER));
+    for (const Object *child : children) {
+        const Layer *layer = vrv_cast<const Layer *>(child->GetFirstAncestor(LAYER));
         assert(layer);
-        const Staff *staff = vrv_cast<const Staff *>((child)->GetFirstAncestor(STAFF));
+        const Staff *staff = vrv_cast<const Staff *>(child->GetFirstAncestor(STAFF));
         assert(staff);
 
         // If the slur is spanning over several measures, the children list will include notes and chords
@@ -335,6 +341,13 @@ void System::AddToDrawingListIfNecessary(Object *object)
         assert(pedal);
         if (pedal->GetEnd()) {
             this->AddToDrawingList(pedal);
+        }
+    }
+    else if (object->Is(TEMPO)) {
+        Tempo *tempo = vrv_cast<Tempo *>(object);
+        assert(tempo);
+        if (tempo->GetEnd() && (tempo->GetExtender() == BOOLEAN_true)) {
+            this->AddToDrawingList(tempo);
         }
     }
     else if (object->Is(TRILL)) {
@@ -642,7 +655,7 @@ int System::AdjustXOverflowEnd(FunctorParams *functorParams)
         return FUNCTOR_CONTINUE;
     }
     Alignment *left = objectX->GetAlignment();
-    Measure *objectXMeasure = dynamic_cast<Measure *>(objectX->GetFirstAncestor(MEASURE));
+    Measure *objectXMeasure = vrv_cast<Measure *>(objectX->GetFirstAncestor(MEASURE));
     if (objectXMeasure != params->m_lastMeasure) {
         left = params->m_lastMeasure->GetLeftBarLine()->GetAlignment();
     }
@@ -946,9 +959,6 @@ int System::AdjustFloatingPositioners(FunctorParams *functorParams)
     AdjustFloatingPositionerGrpsParams adjustFloatingPositionerGrpsParams(params->m_doc);
     Functor adjustFloatingPositionerGrps(&Object::AdjustFloatingPositionerGrps);
 
-    params->m_classId = GLISS;
-    m_systemAligner.Process(params->m_functor, params);
-
     params->m_classId = LV;
     m_systemAligner.Process(params->m_functor, params);
 
@@ -968,6 +978,9 @@ int System::AdjustFloatingPositioners(FunctorParams *functorParams)
     m_systemAligner.Process(params->m_functor, params);
 
     params->m_classId = TRILL;
+    m_systemAligner.Process(params->m_functor, params);
+
+    params->m_classId = ORNAM;
     m_systemAligner.Process(params->m_functor, params);
 
     params->m_classId = FING;

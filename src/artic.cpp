@@ -115,7 +115,6 @@ void Artic::SplitMultival(Object *parent)
         artic->AttEnclosingChars::operator=(*this);
         artic->AttExtSym::operator=(*this);
         artic->AttPlacementRelEvent::operator=(*this);
-        artic->SetParent(parent);
         parent->InsertChild(artic, idx);
         idx++;
     }
@@ -144,7 +143,7 @@ void Artic::GetAllArtics(bool direction, std::vector<Artic *> &artics)
     ClassIdComparison matchType(ARTIC);
     ListOfObjects children;
     parentNoteOrChord->FindAllDescendantsBetween(&children, &matchType, first, last);
-    for (auto &child : children) {
+    for (Object *child : children) {
         if (child == this) continue;
         Artic *artic = vrv_cast<Artic *>(child);
         assert(artic);
@@ -260,8 +259,9 @@ char32_t Artic::GetArticGlyph(data_ARTICULATION artic, data_STAFFREL place) cons
             default: return 0;
         }
     }
-    else
+    else {
         return 0;
+    }
 }
 
 std::pair<char32_t, char32_t> Artic::GetEnclosingGlyphs() const
@@ -296,6 +296,7 @@ bool Artic::VerticalCorr(char32_t code, data_STAFFREL place)
         case SMUFL_E614_stringsHarmonic: return true;
         case SMUFL_E630_pluckedSnapPizzicatoBelow: return true;
         case SMUFL_E633_pluckedLeftHandPizzicato: return true;
+        case SMUFL_E638_pluckedDamp: return true;
         default: return false;
     }
 }
@@ -394,8 +395,9 @@ int Artic::AdjustArtic(FunctorParams *functorParams)
     int yIn, yOut, yRel;
 
     Staff *staff = this->GetAncestorStaff(RESOLVE_CROSS_STAFF);
-    Beam *beam = dynamic_cast<Beam *>(this->GetFirstAncestor(BEAM));
-    int staffYBottom = -params->m_doc->GetDrawingDoubleUnit(staff->m_drawingStaffSize) * (staff->m_drawingLines - 1);
+    Beam *beam = vrv_cast<Beam *>(this->GetFirstAncestor(BEAM));
+    const int staffHeight
+        = params->m_doc->GetDrawingDoubleUnit(staff->m_drawingStaffSize) * (staff->m_drawingLines - 1);
 
     Stem *stem = vrv_cast<Stem *>(params->m_parent->FindDescendantByType(STEM));
     Flag *flag = vrv_cast<Flag *>(params->m_parent->FindDescendantByType(FLAG));
@@ -405,7 +407,7 @@ int Artic::AdjustArtic(FunctorParams *functorParams)
             = params->m_parent->GetDrawingTop(params->m_doc, staff->m_drawingStaffSize, false) - staff->GetDrawingY();
         if (flag && stem && (stem->GetDrawingStemDir() == STEMDIRECTION_up))
             yAboveStem += flag->GetStemUpSE(params->m_doc, staff->m_drawingStaffSize, false).y;
-        yIn = std::max(yAboveStem, staffYBottom);
+        yIn = std::max(yAboveStem, -staffHeight);
         yOut = std::max(yIn, 0);
     }
     else {
@@ -415,7 +417,7 @@ int Artic::AdjustArtic(FunctorParams *functorParams)
             yBelowStem += flag->GetStemDownNW(params->m_doc, staff->m_drawingStaffSize, false).y;
         yIn = std::min(yBelowStem, 0);
         if (beam && beam->m_crossStaffContent && beam->m_drawingPlace == BEAMPLACE_mixed) yIn -= beam->m_beamWidthBlack;
-        yOut = std::min(yIn, staffYBottom);
+        yOut = std::min(yIn, -staffHeight);
     }
 
     yRel = this->IsInsideArtic() ? yIn : yOut;
@@ -453,10 +455,10 @@ int Artic::AdjustArtic(FunctorParams *functorParams)
         if ((this->GetDrawingPlace() == STAFFREL_above) && (y > staff->GetDrawingY())) {
             yShift += spacingBottom;
         }
-        // If we are below the bottom, just pile the down
-        else if ((this->GetDrawingPlace() == STAFFREL_below) && (y < staffYBottom)) {
-            if (y > staffYBottom - unit) {
-                yShift = (staffYBottom - unit) - y;
+        // If we are below the bottom, just pile them down
+        else if ((this->GetDrawingPlace() == STAFFREL_below) && (y < staff->GetDrawingY() - staffHeight)) {
+            if (y > staff->GetDrawingY() - staffHeight - unit) {
+                yShift = (staff->GetDrawingY() - staffHeight - unit) - y;
                 if (std::abs(yShift) < spacingTop) yShift = -spacingTop;
             }
             else {

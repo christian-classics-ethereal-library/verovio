@@ -22,6 +22,7 @@
 #include "f.h"
 #include "fb.h"
 #include "fig.h"
+#include "graphic.h"
 #include "lb.h"
 #include "num.h"
 #include "options.h"
@@ -50,7 +51,7 @@ void View::DrawF(DeviceContext *dc, F *f, TextDrawingParams &params)
     this->DrawTextChildren(dc, f, params);
 
     if (f->GetStart() && f->GetEnd()) {
-        System *currentSystem = dynamic_cast<System *>(f->GetFirstAncestor(SYSTEM));
+        System *currentSystem = vrv_cast<System *>(f->GetFirstAncestor(SYSTEM));
         // Postpone the drawing of the end of the system; this will call DrawFConnector
         if (currentSystem) {
             currentSystem->AddToDrawingList(f);
@@ -75,7 +76,7 @@ void View::DrawDirString(DeviceContext *dc, const std::u32string &str, TextDrawi
     std::u32string convertedStr = str;
     // If the current font is a music font, we want to convert Music Unicode glyph to SMuFL
     if (dc->GetFont()->GetSmuflFont()) {
-        for (int i = 0; i < (int)str.size(); i++) {
+        for (int i = 0; i < (int)str.size(); ++i) {
             convertedStr[i] = Resources::GetSmuflGlyphForUnicodeChar(str.at(i));
         }
     }
@@ -153,7 +154,7 @@ void View::DrawHarmString(DeviceContext *dc, const std::u32string &str, TextDraw
     int toDcX = ToDeviceContextX(params.m_x);
     int toDcY = ToDeviceContextY(params.m_y);
 
-    std::size_t prevPos = 0, pos;
+    size_t prevPos = 0, pos;
     while ((pos = str.find_first_of(VRV_TEXT_HARM, prevPos)) != std::wstring::npos) {
         // If pos is > than the previous, it is the substring to extract
         if (pos > prevPos) {
@@ -348,11 +349,11 @@ void View::DrawFig(DeviceContext *dc, Fig *fig, TextDrawingParams &params)
 
     dc->StartGraphic(fig, "", fig->GetID());
 
-    Svg *svg = dynamic_cast<Svg *>(fig->FindDescendantByType(SVG));
+    Svg *svg = vrv_cast<Svg *>(fig->FindDescendantByType(SVG));
     if (svg) {
         params.m_x = fig->GetDrawingX();
         params.m_y = fig->GetDrawingY();
-        this->DrawSvg(dc, svg, params);
+        this->DrawSvg(dc, svg, params, 100, false);
     }
 
     dc->EndGraphic(fig, this);
@@ -446,11 +447,14 @@ void View::DrawRend(DeviceContext *dc, Rend *rend, TextDrawingParams &params)
         dc->GetFont()->SetPointSize(dc->GetFont()->GetPointSize() / SUPER_SCRIPT_FACTOR);
     }
 
-    if ((rend->GetRend() == TEXTRENDITION_box) || (rend->GetRend() == TEXTRENDITION_circle)) {
-        params.m_enclosedRend.push_back(rend);
-        params.m_x = rend->GetContentRight() + m_doc->GetDrawingUnit(100);
-        params.m_explicitPosition = true;
-        params.m_enclose = rend->GetRend();
+    // Do not render the box or circle if the content is empty
+    if (rend->HasContentBB()) {
+        if ((rend->GetRend() == TEXTRENDITION_box) || (rend->GetRend() == TEXTRENDITION_circle)) {
+            params.m_enclosedRend.push_back(rend);
+            params.m_x = rend->GetContentRight() + m_doc->GetDrawingUnit(100);
+            params.m_explicitPosition = true;
+            params.m_enclose = rend->GetRend();
+        }
     }
 
     if (customFont) {
@@ -487,11 +491,11 @@ void View::DrawText(DeviceContext *dc, Text *text, TextDrawingParams &params)
     }
 
     // special case where we want to replace some unicode music points to SMuFL
-    if (text->GetFirstAncestor(DIR)) {
+    if (text->GetFirstAncestor(DIR) || text->GetFirstAncestor(ORNAM)) {
         this->DrawDirString(dc, text->GetText(), params);
     }
     else if (text->GetFirstAncestor(DYNAM)) {
-        this->DrawDynamString(dc, text->GetText(), params, dynamic_cast<Rend *>(text->GetFirstAncestor(REND)));
+        this->DrawDynamString(dc, text->GetText(), params, vrv_cast<Rend *>(text->GetFirstAncestor(REND)));
     }
     // special case where we want to replace the '#' or 'b' with a VerovioText glyphs
     else if (text->GetFirstAncestor(HARM)) {
@@ -518,15 +522,49 @@ void View::DrawText(DeviceContext *dc, Text *text, TextDrawingParams &params)
     dc->EndTextGraphic(text, this);
 }
 
-void View::DrawSvg(DeviceContext *dc, Svg *svg, TextDrawingParams &params)
+void View::DrawGraphic(DeviceContext *dc, Graphic *graphic, TextDrawingParams &params, int staffSize, bool dimin)
+{
+    assert(dc);
+    assert(graphic);
+
+    dc->StartGraphic(graphic, "", graphic->GetID(), SYMBOLREF);
+
+    int width = graphic->GetDrawingWidth(m_doc->GetDrawingUnit(staffSize), staffSize);
+    int height = graphic->GetDrawingHeight(m_doc->GetDrawingUnit(staffSize), staffSize);
+
+    if (dimin) {
+        width = width * m_options->m_graceFactor.GetValue();
+        height = height * m_options->m_graceFactor.GetValue();
+    }
+
+    dc->DrawGraphicUri(ToDeviceContextX(params.m_x), ToDeviceContextY(params.m_y), width, height, graphic->GetTarget());
+
+    dc->EndGraphic(graphic, this);
+}
+
+void View::DrawSvg(DeviceContext *dc, Svg *svg, TextDrawingParams &params, int staffSize, bool dimin)
 {
     assert(dc);
     assert(svg);
 
     dc->StartGraphic(svg, "", svg->GetID());
 
-    dc->DrawSvgShape(
-        ToDeviceContextX(params.m_x), ToDeviceContextY(params.m_y), svg->GetWidth(), svg->GetHeight(), svg->Get());
+    int width = svg->GetWidth();
+    int height = svg->GetHeight();
+    double scale = 1.0;
+
+    if (staffSize != 100) {
+        width = width * staffSize / 100;
+        height = height * staffSize / 100;
+        scale = scale * staffSize / 100;
+    }
+    if (dimin) {
+        width = width * m_options->m_graceFactor.GetValue();
+        height = height * m_options->m_graceFactor.GetValue();
+        scale = scale * m_options->m_graceFactor.GetValue();
+    }
+
+    dc->DrawSvgShape(ToDeviceContextX(params.m_x), ToDeviceContextY(params.m_y), width, height, scale, svg->Get());
 
     dc->EndGraphic(svg, this);
 }

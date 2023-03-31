@@ -47,7 +47,8 @@ BBoxDeviceContext::BBoxDeviceContext(View *view, int width, int height, unsigned
 
 BBoxDeviceContext::~BBoxDeviceContext() {}
 
-void BBoxDeviceContext::StartGraphic(Object *object, std::string gClass, std::string gId, bool primary, bool prepend)
+void BBoxDeviceContext::StartGraphic(
+    Object *object, std::string gClass, std::string gId, GraphicID graphicID, bool prepend)
 {
     // add the object object
     object->BoundingBox::ResetBoundingBox();
@@ -183,38 +184,20 @@ void BBoxDeviceContext::DrawEllipse(int x, int y, int width, int height)
 
 void BBoxDeviceContext::DrawEllipticArc(int x, int y, int width, int height, double start, double end)
 {
-    int penWidth = m_penStack.top().GetWidth();
-    if (penWidth % 2) {
-        penWidth += 1;
-    }
+    const std::pair<int, int> overlap = this->GetPenWidthOverlap();
+
     // needs to be fixed - for now uses the entire rectangle
-    this->UpdateBB(x - penWidth / 2, y - penWidth / 2, x + width + penWidth / 2, y + height + penWidth / 2);
+    this->UpdateBB(x - overlap.first, y - overlap.second, x + width + overlap.second, y + height + overlap.first);
 }
 
 void BBoxDeviceContext::DrawLine(int x1, int y1, int x2, int y2)
 {
-    if (x1 > x2) {
-        int tmp = x1;
-        x1 = x2;
-        x2 = tmp;
-    }
-    if (y1 > y2) {
-        int tmp = y1;
-        y1 = y2;
-        y2 = tmp;
-    }
+    if (x1 > x2) std::swap(x1, x2);
+    if (y1 > y2) std::swap(y1, y2);
 
-    int penWidth = m_penStack.top().GetWidth();
-    int p1 = penWidth / 2;
-    int p2 = p1;
-    // how odd line width is handled might depend on the implementation of the device context.
-    // however, we expect the actually width to be shifted on the left/top
-    // e.g. with 7, 4 on the left and 3 on the right
-    if (penWidth % 2) {
-        p1++;
-    }
+    const std::pair<int, int> overlap = this->GetPenWidthOverlap();
 
-    this->UpdateBB(x1 - p1, y1 - p1, x2 + p2, y2 + p2);
+    this->UpdateBB(x1 - overlap.first, y1 - overlap.second, x2 + overlap.second, y2 + overlap.first);
 }
 
 void BBoxDeviceContext::DrawPolyline(int n, Point points[], int xOffset, int yOffset)
@@ -233,13 +216,16 @@ void BBoxDeviceContext::DrawPolygon(int n, Point points[], int xOffset, int yOff
     int y1 = points[0].y + yOffset;
     int y2 = y1;
 
-    for (int i = 0; i < n; i++) {
-        if (points[i].x + xOffset < x1) x1 = points[i].x + xOffset;
-        if (points[i].x + xOffset > x2) x2 = points[i].x + xOffset;
-        if (points[i].y + yOffset < y1) y1 = points[i].y + yOffset;
-        if (points[i].y + yOffset > y2) y2 = points[i].y + yOffset;
+    for (int i = 0; i < n; ++i) {
+        x1 = std::min(x1, points[i].x + xOffset);
+        x2 = std::max(x2, points[i].x + xOffset);
+        y1 = std::min(y1, points[i].y + yOffset);
+        y2 = std::max(y2, points[i].y + yOffset);
     }
-    this->UpdateBB(x1, y1, x2, y2);
+
+    const std::pair<int, int> overlap = this->GetPenWidthOverlap();
+
+    this->UpdateBB(x1 - overlap.first, y1 - overlap.second, x2 + overlap.second, y2 + overlap.first);
 }
 
 void BBoxDeviceContext::DrawRectangle(int x, int y, int width, int height)
@@ -258,13 +244,10 @@ void BBoxDeviceContext::DrawRoundedRectangle(int x, int y, int width, int height
         width = -width;
         x -= width;
     }
-    int penWidth = m_penStack.top().GetWidth();
 
-    if (penWidth % 2) {
-        penWidth += 1;
-    }
+    const std::pair<int, int> overlap = this->GetPenWidthOverlap();
 
-    this->UpdateBB(x - penWidth / 2, y - penWidth / 2, x + width + penWidth / 2, y + height + penWidth / 2);
+    this->UpdateBB(x - overlap.first, y - overlap.second, x + width + overlap.second, y + height + overlap.first);
 }
 
 void BBoxDeviceContext::DrawPlaceholder(int x, int y)
@@ -379,8 +362,7 @@ void BBoxDeviceContext::DrawMusicText(const std::u32string &text, int x, int y, 
     char32_t smuflGlyph = 0;
     if (setSmuflGlyph && (text.length() == 1)) smuflGlyph = text.at(0);
 
-    for (unsigned int i = 0; i < text.length(); i++) {
-        char32_t c = text.at(i);
+    for (char32_t c : text) {
         const Glyph *glyph = resources->GetGlyph(c);
         if (!glyph) {
             continue;
@@ -403,7 +385,12 @@ void BBoxDeviceContext::DrawMusicText(const std::u32string &text, int x, int y, 
 
 void BBoxDeviceContext::DrawSpline(int n, Point points[]) {}
 
-void BBoxDeviceContext::DrawSvgShape(int x, int y, int width, int height, pugi::xml_node svg)
+void BBoxDeviceContext::DrawGraphicUri(int x, int y, int width, int height, const std::string &uri)
+{
+    this->DrawRoundedRectangle(x, y, width, height, 0);
+}
+
+void BBoxDeviceContext::DrawSvgShape(int x, int y, int width, int height, double scale, pugi::xml_node svg)
 {
     this->DrawRoundedRectangle(x, y, width, height, 0);
 }
@@ -437,11 +424,10 @@ void BBoxDeviceContext::UpdateBB(int x1, int y1, int x2, int y2, char32_t glyph)
         if (glyph != 0) (m_objects.back())->SetBoundingBoxGlyph(glyph, m_fontStack.top()->GetPointSize());
     }
 
-    int i;
     // Stretch the content BB of the other objects
-    for (i = 0; i < (int)m_objects.size(); i++) {
-        if (!m_isDeactivatedX) (m_objects.at(i))->UpdateContentBBoxX(m_view->ToLogicalX(x1), m_view->ToLogicalX(x2));
-        if (!m_isDeactivatedY) (m_objects.at(i))->UpdateContentBBoxY(m_view->ToLogicalY(y1), m_view->ToLogicalY(y2));
+    for (Object *object : m_objects) {
+        if (!m_isDeactivatedX) object->UpdateContentBBoxX(m_view->ToLogicalX(x1), m_view->ToLogicalX(x2));
+        if (!m_isDeactivatedY) object->UpdateContentBBoxY(m_view->ToLogicalY(y1), m_view->ToLogicalY(y2));
     }
 }
 
@@ -450,6 +436,20 @@ void BBoxDeviceContext::ResetGraphicRotation()
     m_rotationAngle = 0.0;
     m_rotationOrigin.x = 0;
     m_rotationOrigin.y = 0;
+}
+
+std::pair<int, int> BBoxDeviceContext::GetPenWidthOverlap() const
+{
+    const int penWidth = m_penStack.top().GetWidth();
+    int p1 = penWidth / 2;
+    int p2 = p1;
+
+    // How odd line width is handled might depend on the implementation of the device context.
+    // However, we expect the actual width to be shifted on the left/top
+    // e.g., with 7, 4 on the left and 3 on the right.
+    if (penWidth % 2) ++p1;
+
+    return { p1, p2 };
 }
 
 } // namespace vrv

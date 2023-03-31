@@ -9,6 +9,7 @@
 #define __VRV_TEXT_DIR_INTERFACE_H__
 
 #include "atts_shared.h"
+#include "interface.h"
 #include "vrvdef.h"
 
 namespace vrv {
@@ -39,6 +40,11 @@ public:
      * Return the number of lines in the text object by counting <lb> children
      */
     int GetNumberOfLines(const Object *object) const;
+
+    /**
+     * Check whether one of the children has hAlign attribute set to `alignment` value
+     */
+    bool AreChildrenAlignedTo(const Object *object, data_HORIZONTALALIGNMENT alignment) const;
 
 private:
     //

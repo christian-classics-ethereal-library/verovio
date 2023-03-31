@@ -16,7 +16,10 @@
 
 #include "devicecontext.h"
 #include "doc.h"
+#include "graphic.h"
 #include "options.h"
+#include "svg.h"
+#include "symboldef.h"
 #include "vrv.h"
 
 namespace vrv {
@@ -49,25 +52,11 @@ void View::DrawHorizontalLine(DeviceContext *dc, int x1, int x2, int y1, int wid
     return;
 }
 
-void View::DrawRoundedLine(DeviceContext *dc, int x1, int y1, int x2, int y2, int width)
-{
-    assert(dc);
-
-    dc->SetPen(m_currentColour, std::max(1, ToDeviceContextX(width)), AxSOLID, 0, 0, AxCAP_ROUND);
-    dc->SetBrush(m_currentColour, AxSOLID);
-
-    dc->DrawLine(ToDeviceContextX(x1), ToDeviceContextY(y1), ToDeviceContextX(x2), ToDeviceContextY(y2));
-
-    dc->ResetPen();
-    dc->ResetBrush();
-    return;
-}
-
 void View::DrawVerticalSegmentedLine(
     DeviceContext *dc, int x1, SegmentedLine &line, int width, int dashLength, int gapLength)
 {
-    int i, start, end;
-    for (i = 0; i < line.GetSegmentCount(); i++) {
+    int start, end;
+    for (int i = 0; i < line.GetSegmentCount(); ++i) {
         std::tie(start, end) = line.GetStartEnd(i);
         this->DrawVerticalLine(dc, start, end, x1, width, dashLength, gapLength);
     }
@@ -76,8 +65,8 @@ void View::DrawVerticalSegmentedLine(
 void View::DrawHorizontalSegmentedLine(
     DeviceContext *dc, int y1, SegmentedLine &line, int width, int dashLength, int gapLength)
 {
-    int i, start, end;
-    for (i = 0; i < line.GetSegmentCount(); i++) {
+    int start, end;
+    for (int i = 0; i < line.GetSegmentCount(); ++i) {
         std::tie(start, end) = line.GetStartEnd(i);
         this->DrawHorizontalLine(dc, start, end, y1, width, dashLength, gapLength);
     }
@@ -203,10 +192,12 @@ void View::DrawDiamond(DeviceContext *dc, int x1, int y1, int height, int width,
     Point p[4];
 
     dc->SetPen(m_currentColour, linewidth, AxSOLID);
-    if (fill)
+    if (fill) {
         dc->SetBrush(m_currentColour, AxSOLID);
-    else
+    }
+    else {
         dc->SetBrush(m_currentColour, AxTRANSPARENT);
+    }
 
     int dHeight = ToDeviceContextX(height);
     int dWidth = ToDeviceContextX(width);
@@ -402,6 +393,44 @@ void View::DrawThickBezierCurve(
         dc->DrawCubicBezierPath(bez1);
     }
     dc->ResetPen();
+}
+
+void View::DrawSymbolDef(DeviceContext *dc, Object *parent, SymbolDef *symbolDef, int x, int y, int staffSize,
+    bool dimin, data_HORIZONTALALIGNMENT alignment)
+{
+    assert(dc);
+    assert(symbolDef);
+
+    TextDrawingParams params;
+    params.m_x = x;
+    params.m_y = y;
+
+    // Because image y coordinates are inverted we need to adjust the y position
+    params.m_y += symbolDef->GetSymbolHeight(m_doc, staffSize, dimin);
+
+    if (alignment != HORIZONTALALIGNMENT_left) {
+        const int width = symbolDef->GetSymbolWidth(m_doc, staffSize, dimin);
+        params.m_x -= (alignment == HORIZONTALALIGNMENT_center) ? (width / 2) : width;
+    }
+
+    // Because thg Svg is a child of symbolDef we need to temporarily change the parent for the bounding boxes
+    // to be properly propagated in the device context
+    symbolDef->SetTemporaryParent(parent);
+
+    for (Object *current : symbolDef->GetChildren()) {
+        if (current->Is(GRAPHIC)) {
+            Graphic *graphic = vrv_cast<Graphic *>(current);
+            assert(graphic);
+            this->DrawGraphic(dc, graphic, params, staffSize, dimin);
+        }
+        if (current->Is(SVG)) {
+            Svg *svg = vrv_cast<Svg *>(current);
+            assert(svg);
+            this->DrawSvg(dc, svg, params, staffSize, dimin);
+        }
+    }
+
+    symbolDef->ResetTemporaryParent();
 }
 
 } // namespace vrv

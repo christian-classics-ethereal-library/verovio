@@ -17,6 +17,7 @@
 #include "abbr.h"
 #include "accid.h"
 #include "add.h"
+#include "altsyminterface.h"
 #include "anchoredtext.h"
 #include "annot.h"
 #include "app.h"
@@ -61,6 +62,7 @@
 #include "halfmrpt.h"
 #include "harm.h"
 #include "instrdef.h"
+#include "iopae.h"
 #include "keyaccid.h"
 #include "keysig.h"
 #include "label.h"
@@ -73,6 +75,7 @@
 #include "lv.h"
 #include "mdiv.h"
 #include "measure.h"
+#include "meibasic.h"
 #include "mensur.h"
 #include "metersig.h"
 #include "metersiggrp.h"
@@ -90,6 +93,7 @@
 #include "num.h"
 #include "octave.h"
 #include "orig.h"
+#include "ornam.h"
 #include "page.h"
 #include "pagemilestone.h"
 #include "pages.h"
@@ -127,6 +131,8 @@
 #include "syl.h"
 #include "syllable.h"
 #include "symbol.h"
+#include "symboldef.h"
+#include "symboltable.h"
 #include "system.h"
 #include "systemmilestone.h"
 #include "tabdursym.h"
@@ -257,6 +263,10 @@ bool MEIOutput::Export()
         }
         if (m_doc->GetOptions()->m_outputFormatRaw.GetValue()) {
             output_flags |= pugi::format_raw;
+        }
+
+        if (this->GetBasic()) {
+            this->PruneAttributes(m_mei.child("music"));
         }
 
         std::string indent = (m_indent == -1) ? "\t" : std::string(m_indent, ' ');
@@ -437,6 +447,10 @@ bool MEIOutput::WriteObjectInternal(Object *object, bool useCustomScoreDef)
         m_currentNode = m_currentNode.append_child("course");
         this->WriteCourse(m_currentNode, vrv_cast<Course *>(object));
     }
+    else if (object->Is(SYMBOLTABLE)) {
+        m_currentNode = m_currentNode.append_child("symbolTable");
+        this->WriteSymbolTable(m_currentNode, vrv_cast<SymbolTable *>(object));
+    }
     else if (object->Is(MEASURE)) {
         m_currentNode = m_currentNode.append_child("measure");
         this->WriteMeasure(m_currentNode, vrv_cast<Measure *>(object));
@@ -516,6 +530,10 @@ bool MEIOutput::WriteObjectInternal(Object *object, bool useCustomScoreDef)
     else if (object->Is(OCTAVE)) {
         m_currentNode = m_currentNode.append_child("octave");
         this->WriteOctave(m_currentNode, vrv_cast<Octave *>(object));
+    }
+    else if (object->Is(ORNAM)) {
+        m_currentNode = m_currentNode.append_child("ornam");
+        this->WriteOrnam(m_currentNode, vrv_cast<Ornam *>(object));
     }
     else if (object->Is(PEDAL)) {
         m_currentNode = m_currentNode.append_child("pedal");
@@ -758,6 +776,10 @@ bool MEIOutput::WriteObjectInternal(Object *object, bool useCustomScoreDef)
         m_currentNode = m_currentNode.append_child("symbol");
         this->WriteSymbol(m_currentNode, vrv_cast<Symbol *>(object));
     }
+    else if (object->Is(SYMBOLDEF)) {
+        m_currentNode = m_currentNode.append_child("symbolDef");
+        this->WriteSymbolDef(m_currentNode, vrv_cast<SymbolDef *>(object));
+    }
     else if (object->Is(TEXT)) {
         this->WriteText(m_currentNode, vrv_cast<Text *>(object));
     }
@@ -865,6 +887,12 @@ bool MEIOutput::WriteObjectInternal(Object *object, bool useCustomScoreDef)
         else {
             return true;
         }
+    }
+
+    // Facsimile and graphic elements
+    else if (object->Is(GRAPHIC)) {
+        m_currentNode = m_currentNode.append_child("graphic");
+        this->WriteGraphic(m_currentNode, vrv_cast<Graphic *>(object));
     }
 
     else {
@@ -1208,6 +1236,26 @@ bool MEIOutput::ProcessScoreBasedFilterEnd(Object *object)
     return (m_filterMatchLocation == MatchLocation::Here);
 }
 
+void MEIOutput::PruneAttributes(pugi::xml_node node)
+{
+    if (node.text()) return;
+    if (!MEIBasic::map.count(node.name())) {
+        LogWarning("Element '%s' is not supported but will be preserved", node.name());
+        return;
+    }
+    std::list<std::string> unsupported;
+    for (pugi::xml_attribute attribute : node.attributes()) {
+        if (!MEIBasic::IsAllowed(node.name(), attribute.name())) {
+            unsupported.push_back(attribute.name());
+        }
+    }
+    for (const std::string &attribute : unsupported) node.remove_attribute(attribute.c_str());
+
+    for (pugi::xml_node &child : node.children()) {
+        this->PruneAttributes(child);
+    }
+}
+
 void MEIOutput::WriteStackedObjects()
 {
     // Write the objects from the stack
@@ -1391,36 +1439,12 @@ bool MEIOutput::WriteDoc(Doc *doc)
     assert(!m_mei.empty());
 
     // ---- header ----
-    if (!m_ignoreHeader && m_doc->m_header.first_child()) {
-        if (!m_doc->GetOptions()->m_transpose.GetValue().empty())
-            this->WriteRevisionDesc(m_doc->m_header.first_child());
+    if (!m_ignoreHeader) {
+        if (!m_doc->m_header.first_child()) m_doc->GenerateMEIHeader(this->GetBasic());
         m_mei.append_copy(m_doc->m_header.first_child());
-    }
-    else {
-        pugi::xml_node meiHead = m_mei.append_child("meiHead");
-        pugi::xml_node fileDesc = meiHead.append_child("fileDesc");
-        pugi::xml_node titleStmt = fileDesc.append_child("titleStmt");
-        titleStmt.append_child("title");
-        pugi::xml_node pubStmt = fileDesc.append_child("pubStmt");
-        pugi::xml_node date = pubStmt.append_child("date");
-
-        // date
-        time_t t = time(0); // get time now
-        struct tm *now = localtime(&t);
-        std::string dateStr = StringFormat("%d-%02d-%02d %02d:%02d:%02d", now->tm_year + 1900, now->tm_mon + 1,
-            now->tm_mday, now->tm_hour, now->tm_min, now->tm_sec);
-        date.append_child(pugi::node_pcdata).set_value(dateStr.c_str());
-
-        if (!this->GetBasic()) {
-            // encodingDesc
-            pugi::xml_node encodingDesc = meiHead.append_child("encodingDesc");
-            pugi::xml_node projectDesc = encodingDesc.append_child("projectDesc");
-            pugi::xml_node p1 = projectDesc.append_child("p");
-            p1.append_child(pugi::node_pcdata)
-                .set_value(StringFormat("Encoded with Verovio version %s", GetVersion().c_str()).c_str());
-
-            // revisionDesc
-            if (!m_doc->GetOptions()->m_transpose.GetValue().empty()) this->WriteRevisionDesc(meiHead);
+        // Add transposition in the revision list but not in mei-basic
+        if (!this->GetBasic() && !m_doc->GetOptions()->m_transpose.GetValue().empty()) {
+            this->WriteRevisionDesc(m_mei.first_child());
         }
     }
 
@@ -1837,6 +1861,13 @@ void MEIOutput::WriteCourse(pugi::xml_node currentNode, Course *course)
     course->WritePitch(currentNode);
 }
 
+void MEIOutput::WriteSymbolTable(pugi::xml_node currentNode, SymbolTable *symbolTable)
+{
+    assert(symbolTable);
+
+    this->WriteXmlId(currentNode, symbolTable);
+}
+
 void MEIOutput::WriteMeasure(pugi::xml_node currentNode, Measure *measure)
 {
     assert(measure);
@@ -1881,6 +1912,7 @@ void MEIOutput::WriteControlElement(pugi::xml_node currentNode, ControlElement *
     assert(controlElement);
 
     this->WriteXmlId(currentNode, controlElement);
+    this->WriteAltSymInterface(currentNode, controlElement);
     this->WriteLinkingInterface(currentNode, controlElement);
     controlElement->WriteLabelled(currentNode);
     controlElement->WriteTyped(currentNode);
@@ -2089,6 +2121,18 @@ void MEIOutput::WriteOctave(pugi::xml_node currentNode, Octave *octave)
     octave->WriteOctaveDisplacement(currentNode);
 }
 
+void MEIOutput::WriteOrnam(pugi::xml_node currentNode, Ornam *ornam)
+{
+    assert(ornam);
+
+    this->WriteControlElement(currentNode, ornam);
+    this->WriteTextDirInterface(currentNode, ornam);
+    this->WriteTimePointInterface(currentNode, ornam);
+    ornam->WriteColor(currentNode);
+    ornam->WriteExtSym(currentNode);
+    ornam->WriteOrnamentAccid(currentNode);
+}
+
 void MEIOutput::WritePedal(pugi::xml_node currentNode, Pedal *pedal)
 {
     assert(pedal);
@@ -2165,7 +2209,8 @@ void MEIOutput::WriteTempo(pugi::xml_node currentNode, Tempo *tempo)
 
     this->WriteControlElement(currentNode, tempo);
     this->WriteTextDirInterface(currentNode, tempo);
-    this->WriteTimePointInterface(currentNode, tempo);
+    this->WriteTimeSpanningInterface(currentNode, tempo);
+    tempo->WriteExtender(currentNode);
     tempo->WriteLang(currentNode);
     tempo->WriteMidiTempo(currentNode);
     tempo->WriteMmTempo(currentNode);
@@ -2343,13 +2388,13 @@ void MEIOutput::WriteClef(pugi::xml_node currentNode, Clef *clef)
 
     // Only write att values if representing an attribute or in MEI basic
     if (!this->IsTreeObject(clef)) {
-        AttCleffingLog cleffingLog;
+        InstCleffingLog cleffingLog;
         cleffingLog.SetClefShape(clef->GetShape());
         cleffingLog.SetClefLine(clef->GetLine());
         cleffingLog.SetClefDis(clef->GetDis());
         cleffingLog.SetClefDisPlace(clef->GetDisPlace());
         cleffingLog.WriteCleffingLog(currentNode);
-        AttCleffingVis cleffingVis;
+        InstCleffingVis cleffingVis;
         cleffingVis.SetClefColor(clef->GetColor());
         cleffingVis.SetClefVisible(clef->GetVisible());
         cleffingVis.WriteCleffingVis(currentNode);
@@ -2436,18 +2481,18 @@ void MEIOutput::WriteKeySig(pugi::xml_node currentNode, KeySig *keySig)
 
     // Only write att values if representing an attribute or in MEI basic
     if (!this->IsTreeObject(keySig)) {
-        AttKeySigDefaultAnl attKeySigDefaultAnl;
+        InstKeySigDefaultAnl attKeySigDefaultAnl;
         // Broken in MEI 4.0.2 - waiting for a fix
         // attKeySigDefaultAnl.SetKeyAccid(keySig->GetAccid());
         attKeySigDefaultAnl.SetKeyMode(keySig->GetMode());
         attKeySigDefaultAnl.SetKeyPname(keySig->GetPname());
         attKeySigDefaultAnl.WriteKeySigDefaultAnl(currentNode);
-        AttKeySigDefaultLog attKeySigDefaultLog;
+        InstKeySigDefaultLog attKeySigDefaultLog;
         // If there is no @sig, try to build it from the keyAccid children.
         const data_KEYSIGNATURE sig = (keySig->HasSig()) ? keySig->GetSig() : keySig->ConvertToSig();
         attKeySigDefaultLog.SetKeySig(sig);
         attKeySigDefaultLog.WriteKeySigDefaultLog(currentNode);
-        AttKeySigDefaultVis attKeySigDefaultVis;
+        InstKeySigDefaultVis attKeySigDefaultVis;
         attKeySigDefaultVis.SetKeysigShow(keySig->GetVisible());
         attKeySigDefaultVis.SetKeysigShowchange(keySig->GetSigShowchange());
         attKeySigDefaultVis.WriteKeySigDefaultVis(currentNode);
@@ -2476,18 +2521,18 @@ void MEIOutput::WriteMensur(pugi::xml_node currentNode, Mensur *mensur)
     assert(mensur);
 
     if (!this->IsTreeObject(mensur)) {
-        AttMensuralLog mensuralLog;
+        InstMensuralLog mensuralLog;
 
         mensuralLog.SetProportNum(mensur->GetNum());
         mensuralLog.SetProportNumbase(mensur->GetNumbase());
         mensuralLog.WriteMensuralLog(currentNode);
-        AttMensuralShared mensuralShared;
+        InstMensuralShared mensuralShared;
         mensuralShared.SetModusmaior(mensur->GetModusmaior());
         mensuralShared.SetModusminor(mensur->GetModusminor());
         mensuralShared.SetProlatio(mensur->GetProlatio());
         mensuralShared.SetTempus(mensur->GetTempus());
         mensuralShared.WriteMensuralShared(currentNode);
-        AttMensuralVis mensuralVis;
+        InstMensuralVis mensuralVis;
         mensuralVis.SetMensurDot(mensur->GetDot());
         mensuralVis.SetMensurColor(mensur->GetColor());
         mensuralVis.SetMensurOrient(mensur->GetOrient());
@@ -2513,12 +2558,12 @@ void MEIOutput::WriteMeterSig(pugi::xml_node currentNode, MeterSig *meterSig)
 
     // Only write att values if representing an attribute or in MEI basic
     if (!this->IsTreeObject(meterSig)) {
-        AttMeterSigDefaultLog meterSigDefaultLog;
+        InstMeterSigDefaultLog meterSigDefaultLog;
         meterSigDefaultLog.SetMeterCount(meterSig->GetCount());
         meterSigDefaultLog.SetMeterSym(meterSig->GetSym());
         meterSigDefaultLog.SetMeterUnit(meterSig->GetUnit());
         meterSigDefaultLog.WriteMeterSigDefaultLog(currentNode);
-        AttMeterSigDefaultVis meterSigDefaultVis;
+        InstMeterSigDefaultVis meterSigDefaultVis;
         meterSigDefaultVis.SetMeterForm(meterSig->GetForm());
         meterSigDefaultVis.WriteMeterSigDefaultVis(currentNode);
         return;
@@ -2624,6 +2669,7 @@ void MEIOutput::WriteNote(pugi::xml_node currentNode, Note *note)
     note->WriteCue(currentNode);
     note->WriteExtSym(currentNode);
     note->WriteGraced(currentNode);
+    note->WriteHarmonicFunction(currentNode);
     note->WriteMidiVelocity(currentNode);
     note->WriteNoteGesTab(currentNode);
     note->WriteNoteHeads(currentNode);
@@ -2853,7 +2899,8 @@ void MEIOutput::WriteSvg(pugi::xml_node currentNode, Svg *svg)
 {
     assert(svg);
 
-    this->WriteXmlId(currentNode, svg);
+    // <svg> uses @id and not @xml:id
+    if (!m_removeIds) currentNode.append_attribute("id") = IDToMeiStr(svg).c_str();
 
     pugi::xml_node svgNode = svg->Get();
     for (pugi::xml_attribute attr : svgNode.attributes()) {
@@ -2875,6 +2922,13 @@ void MEIOutput::WriteSymbol(pugi::xml_node currentNode, Symbol *symbol)
     symbol->WriteTypography(currentNode);
 }
 
+void MEIOutput::WriteSymbolDef(pugi::xml_node currentNode, SymbolDef *symbolDef)
+{
+    assert(symbolDef);
+
+    this->WriteXmlId(currentNode, symbolDef);
+}
+
 void MEIOutput::WriteText(pugi::xml_node element, Text *text)
 {
     if (!text->GetText().empty()) {
@@ -2886,6 +2940,13 @@ void MEIOutput::WriteText(pugi::xml_node element, Text *text)
             nodechild.text() = UTF32to8(text->GetText()).c_str();
         }
     }
+}
+
+void MEIOutput::WriteAltSymInterface(pugi::xml_node element, AltSymInterface *interface)
+{
+    assert(interface);
+
+    interface->WriteAltSym(element);
 }
 
 void MEIOutput::WriteAreaPosInterface(pugi::xml_node element, AreaPosInterface *interface)
@@ -2956,6 +3017,7 @@ void MEIOutput::WriteScoreDefInterface(pugi::xml_node element, ScoreDefInterface
     interface->WriteDurationDefault(element);
     interface->WriteLyricStyle(element);
     interface->WriteMidiTempo(element);
+    interface->WriteMmTempo(element);
     interface->WriteMultinumMeasures(element);
     interface->WritePianoPedals(element);
 }
@@ -3166,31 +3228,32 @@ std::u32string MEIOutput::EscapeSMuFL(std::u32string data)
     std::u32string buffer;
     // approximate that we won't have a 1.1 longer string (for optimization)
     buffer.reserve(data.size() * 1.1);
-    for (size_t pos = 0; pos != data.size(); ++pos) {
-        if (data[pos] == '&') {
+    for (const char32_t &c : data) {
+        if (c == '&') {
             buffer.append(U"&amp;");
         }
-        else if (data[pos] == '\"') {
+        else if (c == '\"') {
             buffer.append(U"&quot;");
         }
-        else if (data[pos] == '\'') {
+        else if (c == '\'') {
             buffer.append(U"&apos;");
         }
-        else if (data[pos] == '<') {
+        else if (c == '<') {
             buffer.append(U"&lt;");
         }
-        else if (data[pos] == '>') {
+        else if (c == '>') {
             buffer.append(U"&gt;");
         }
         // Unicode private area for SMuFL characters (and unicode music symbols)
-        else if (data[pos] > 0xE000) {
+        else if (c > 0xE000) {
             std::ostringstream ss;
-            ss << std::hex << (int)data[pos];
+            ss << std::hex << (int)c;
             std::u32string smuflCode = UTF8to32(ss.str());
             buffer.append(U"&#x").append(smuflCode).append(U";");
         }
-        else
-            buffer.append(&data[pos], 1);
+        else {
+            buffer.append(&c, 1);
+        }
     }
     return buffer;
 }
@@ -3285,7 +3348,7 @@ bool MEIInput::IsAllowed(std::string element, Object *filterParent)
         }
     }
     // filter for dir or tempo
-    else if (filterParent->Is({ DIR, TEMPO })) {
+    else if (filterParent->Is({ DIR, ORNAM, TEMPO })) {
         if (element == "") {
             return true;
         }
@@ -3711,6 +3774,10 @@ bool MEIInput::ReadDoc(pugi::xml_node root)
     pugi::xml_node pages;
     pugi::xml_node back;
 
+    if (m_doc->GetOptions()->m_incip.GetValue()) {
+        return ReadIncipits(m_doc->m_header);
+    }
+
     if (std::string(root.name()) == "music") {
         music = root;
     }
@@ -3832,6 +3899,73 @@ bool MEIInput::ReadDoc(pugi::xml_node root)
             LogWarning("No scoreDef provided, trying to generate one...");
             success = m_doc->GenerateDocumentScoreDef();
         }
+    }
+
+    return success;
+}
+
+bool MEIInput::ReadIncipits(pugi::xml_node root)
+{
+    pugi::xpath_node_set incipSet = root.select_nodes(".//incip");
+    if (incipSet.size() == 0) {
+        LogError("No <incip> element found in the MEI data");
+        return false;
+    }
+
+    int incipCount = 0;
+    bool success = true;
+
+    for (auto &incipItem : incipSet) {
+        if (!success) break;
+        pugi::xml_node incip = incipItem.node();
+        pugi::xml_node incipCode = incip.child("incipCode");
+        if (!incipCode.empty()) {
+            std::string form = incipCode.attribute("form") ? incipCode.attribute("form").value() : "";
+            if (form != "plaineAndEasie" && form != "pae") {
+                // We do not consider it an error if the format is not supported
+                LogWarning("Incipit format in <incipCode> is not a supported format and will be skipped.");
+                // The incipit will not be removed from the header
+                continue;
+            }
+            Doc incipitDoc;
+            PAEInput paeInput(&incipitDoc);
+            paeInput.SetScoreBased(true);
+            std::string paeCode = incipCode.text().as_string();
+            paeCode.erase(paeCode.begin(),
+                std::find_if(paeCode.begin(), paeCode.end(), [](unsigned char ch) { return !std::isspace(ch); }));
+            paeInput.Import(paeCode);
+            Mdiv *mdiv = vrv_cast<Mdiv *>(incipitDoc.DetachChild(0));
+            if (!mdiv) {
+                // We do consider it an error if reading the PAE failed
+                LogError("Reading the Plaine & Easie incipit failed.");
+                success = false;
+                continue;
+            }
+            m_doc->AddChild(mdiv);
+        }
+        else if (std::string(incip.first_child().name()) != "score") {
+            LogWarning("Only <incip> with a <score> first child can be read.");
+            // The incipit will not be removed from the header
+            continue;
+        }
+        else {
+            Mdiv *mdiv = new Mdiv();
+            mdiv->MakeVisible();
+            m_doc->AddChild(mdiv);
+            success = this->ReadMdivChildren(mdiv, incip, true);
+        }
+        // Remove it from the header
+        if (success) {
+            incipCount++;
+            incip.parent().remove_child(incip);
+        }
+    }
+    // If no incipit has been read, then the input fails
+    if (incipCount == 0) success = false;
+
+    if (success) {
+        m_doc->ConvertToPageBasedDoc();
+        m_doc->ConvertMarkupDoc(!m_doc->GetOptions()->m_preserveAnalyticalMarkup.GetValue());
     }
 
     return success;
@@ -4060,6 +4194,9 @@ bool MEIInput::ReadMdivChildren(Object *parent, pugi::xml_node parentNode, bool 
             success = this->ReadMdiv(parent, current, makeVisible);
         }
         else if (std::string(current.name()) == "score") {
+            // Possibly skip content on load
+            if (!isVisible && m_doc->GetOptions()->m_loadSelectedMdivOnly.GetValue()) continue;
+            // Read only the first score
             success = this->ReadScore(parent, current);
             if (parentNode.last_child() != current) {
                 LogWarning("Skipping nodes after <score> element");
@@ -4432,9 +4569,9 @@ bool MEIInput::ReadScoreDefElement(pugi::xml_node element, ScoreDefElement *obje
     object->ReadSystems(element);
     object->ReadTyped(element);
 
-    AttCleffingLog cleffingLog;
+    InstCleffingLog cleffingLog;
     cleffingLog.ReadCleffingLog(element);
-    AttCleffingVis cleffingVis;
+    InstCleffingVis cleffingVis;
     cleffingVis.ReadCleffingVis(element);
     if (cleffingLog.HasClefShape()) {
         Clef *vrvClef = new Clef();
@@ -4448,11 +4585,11 @@ bool MEIInput::ReadScoreDefElement(pugi::xml_node element, ScoreDefElement *obje
         object->AddChild(vrvClef);
     }
 
-    AttKeySigDefaultAnl keySigDefaultAnl;
+    InstKeySigDefaultAnl keySigDefaultAnl;
     keySigDefaultAnl.ReadKeySigDefaultAnl(element);
-    AttKeySigDefaultLog keySigDefaultLog;
+    InstKeySigDefaultLog keySigDefaultLog;
     keySigDefaultLog.ReadKeySigDefaultLog(element);
-    AttKeySigDefaultVis keySigDefaultVis;
+    InstKeySigDefaultVis keySigDefaultVis;
     keySigDefaultVis.ReadKeySigDefaultVis(element);
     if (keySigDefaultAnl.HasKeyAccid() || keySigDefaultAnl.HasKeyMode() || keySigDefaultAnl.HasKeyPname()
         || keySigDefaultLog.HasKeySig() || keySigDefaultVis.HasKeysigShow() || keySigDefaultVis.HasKeysigShowchange()) {
@@ -4468,11 +4605,11 @@ bool MEIInput::ReadScoreDefElement(pugi::xml_node element, ScoreDefElement *obje
         object->AddChild(vrvKeySig);
     }
 
-    AttMensuralLog mensuralLog;
+    InstMensuralLog mensuralLog;
     mensuralLog.ReadMensuralLog(element);
-    AttMensuralShared mensuralShared;
+    InstMensuralShared mensuralShared;
     mensuralShared.ReadMensuralShared(element);
-    AttMensuralVis mensuralVis;
+    InstMensuralVis mensuralVis;
     mensuralVis.ReadMensuralVis(element);
     if (mensuralShared.HasProlatio() || mensuralShared.HasTempus() || mensuralLog.HasProportNum()
         || mensuralLog.HasProportNumbase() || mensuralVis.HasMensurSign()) {
@@ -4500,9 +4637,9 @@ bool MEIInput::ReadScoreDefElement(pugi::xml_node element, ScoreDefElement *obje
         object->AddChild(vrvMensur);
     }
 
-    AttMeterSigDefaultLog meterSigDefaultLog;
+    InstMeterSigDefaultLog meterSigDefaultLog;
     meterSigDefaultLog.ReadMeterSigDefaultLog(element);
-    AttMeterSigDefaultVis meterSigDefaultVis;
+    InstMeterSigDefaultVis meterSigDefaultVis;
     meterSigDefaultVis.ReadMeterSigDefaultVis(element);
     if (meterSigDefaultLog.HasMeterCount() || meterSigDefaultLog.HasMeterSym() || meterSigDefaultLog.HasMeterUnit()) {
         MeterSig *vrvMeterSig = new MeterSig();
@@ -4604,6 +4741,10 @@ bool MEIInput::ReadScoreDefChildren(Object *parent, pugi::xml_node parentNode)
         else if (std::string(current.name()) == "pgHead2") {
             success = this->ReadPgHead2(parent, current);
         }
+        // symbolTable
+        else if (std::string(current.name()) == "symbolTable") {
+            success = this->ReadSymbolTable(parent, current);
+        }
         // content
         else if (std::string(current.name()) == "staffGrp") {
             success = this->ReadStaffGrp(parent, current);
@@ -4634,7 +4775,7 @@ bool MEIInput::ReadStaffGrp(Object *parent, pugi::xml_node staffGrp)
     vrvStaffGrp->ReadBasic(staffGrp);
     vrvStaffGrp->ReadLabelled(staffGrp);
     vrvStaffGrp->ReadNNumberLike(staffGrp);
-    AttStaffGroupingSym groupingSym;
+    InstStaffGroupingSym groupingSym;
     groupingSym.ReadStaffGroupingSym(staffGrp);
     if (groupingSym.HasSymbol()) {
         GrpSym *vrvGrpSym = new GrpSym();
@@ -4954,6 +5095,35 @@ bool MEIInput::ReadCourse(Object *parent, pugi::xml_node course)
     return true;
 }
 
+bool MEIInput::ReadSymbolTable(Object *parent, pugi::xml_node symbolTable)
+{
+    SymbolTable *vrvSymbolTable = new SymbolTable();
+    this->SetMeiID(symbolTable, vrvSymbolTable);
+
+    parent->AddChild(vrvSymbolTable);
+
+    bool success = true;
+    // No need to have ReadSymbolTableChildren for this...
+    pugi::xml_node current;
+    for (current = symbolTable.first_child(); current; current = current.next_sibling()) {
+        if (!success) break;
+        // symbolDef
+        if (std::string(current.name()) == "symbolDef") {
+            success = this->ReadSymbolDef(vrvSymbolTable, current);
+        }
+        // xml comment
+        else if (std::string(current.name()) == "") {
+            success = this->ReadXMLComment(parent, current);
+        }
+        else {
+            LogWarning("Unsupported '<%s>' within <symbolTable>", current.name());
+        }
+    }
+
+    this->ReadUnsupportedAttr(symbolTable, vrvSymbolTable);
+    return success;
+}
+
 bool MEIInput::ReadInstrDef(Object *parent, pugi::xml_node instrDef)
 {
     InstrDef *vrvInstrDef = new InstrDef();
@@ -5136,6 +5306,9 @@ bool MEIInput::ReadMeasureChildren(Object *parent, pugi::xml_node parentNode)
         else if (currentName == "octave") {
             success = this->ReadOctave(parent, current);
         }
+        else if (currentName == "ornam") {
+            success = this->ReadOrnam(parent, current);
+        }
         else if (currentName == "pedal") {
             success = this->ReadPedal(parent, current);
         }
@@ -5225,6 +5398,7 @@ bool MEIInput::ReadMeterSigGrpChildren(Object *parent, pugi::xml_node parentNode
 bool MEIInput::ReadControlElement(pugi::xml_node element, ControlElement *object)
 {
     this->SetMeiID(element, object);
+    this->ReadAltSymInterface(element, object);
     this->ReadLinkingInterface(element, object);
     object->ReadLabelled(element);
     object->ReadTyped(element);
@@ -5506,6 +5680,22 @@ bool MEIInput::ReadOctave(Object *parent, pugi::xml_node octave)
     return true;
 }
 
+bool MEIInput::ReadOrnam(Object *parent, pugi::xml_node ornam)
+{
+    Ornam *vrvOrnam = new Ornam();
+    this->ReadControlElement(ornam, vrvOrnam);
+
+    this->ReadTextDirInterface(ornam, vrvOrnam);
+    this->ReadTimePointInterface(ornam, vrvOrnam);
+    vrvOrnam->ReadColor(ornam);
+    vrvOrnam->ReadExtSym(ornam);
+    vrvOrnam->ReadOrnamentAccid(ornam);
+
+    parent->AddChild(vrvOrnam);
+    this->ReadUnsupportedAttr(ornam, vrvOrnam);
+    return this->ReadTextChildren(vrvOrnam, ornam, vrvOrnam);
+}
+
 bool MEIInput::ReadPedal(Object *parent, pugi::xml_node pedal)
 {
     Pedal *vrvPedal = new Pedal();
@@ -5590,7 +5780,8 @@ bool MEIInput::ReadTempo(Object *parent, pugi::xml_node tempo)
     this->ReadControlElement(tempo, vrvTempo);
 
     this->ReadTextDirInterface(tempo, vrvTempo);
-    this->ReadTimePointInterface(tempo, vrvTempo);
+    this->ReadTimeSpanningInterface(tempo, vrvTempo);
+    vrvTempo->ReadExtender(tempo);
     vrvTempo->ReadLang(tempo);
     vrvTempo->ReadMidiTempo(tempo);
     vrvTempo->ReadMmTempo(tempo);
@@ -6073,7 +6264,7 @@ bool MEIInput::ReadChord(Object *parent, pugi::xml_node chord)
     vrvChord->ReadTiePresent(chord);
     vrvChord->ReadVisibility(chord);
 
-    AttArticulation artic;
+    InstArticulation artic;
     artic.ReadArticulation(chord);
     if (artic.HasArtic()) {
         Artic *vrvArtic = new Artic();
@@ -6113,9 +6304,9 @@ bool MEIInput::ReadClef(Object *parent, pugi::xml_node clef)
 
 void MEIInput::ReadAccidAttr(pugi::xml_node node, Object *object)
 {
-    AttAccidental accidental;
+    InstAccidental accidental;
     accidental.ReadAccidental(node);
-    AttAccidentalGes accidentalGestural;
+    InstAccidentalGes accidentalGestural;
     accidentalGestural.ReadAccidentalGes(node);
     if (accidental.HasAccid() || accidentalGestural.HasAccidGes()) {
         Accid *vrvAccid = new Accid();
@@ -6436,6 +6627,7 @@ bool MEIInput::ReadNote(Object *parent, pugi::xml_node note)
     vrvNote->ReadCue(note);
     vrvNote->ReadExtSym(note);
     vrvNote->ReadGraced(note);
+    vrvNote->ReadHarmonicFunction(note);
     vrvNote->ReadMidiVelocity(note);
     vrvNote->ReadNoteGesTab(note);
     vrvNote->ReadNoteHeads(note);
@@ -6445,7 +6637,7 @@ bool MEIInput::ReadNote(Object *parent, pugi::xml_node note)
     vrvNote->ReadTiePresent(note);
     vrvNote->ReadVisibility(note);
 
-    AttArticulation artic;
+    InstArticulation artic;
     artic.ReadArticulation(note);
     if (artic.HasArtic()) {
         Artic *vrvArtic = new Artic();
@@ -6664,9 +6856,6 @@ bool MEIInput::ReadTextChildren(Object *parent, pugi::xml_node parentNode, Objec
             success = this->ReadSvg(parent, xmlElement);
         }
         else if (elementName == "symbol") {
-            // There will be some additional checks when reading Symbol because of some additional limitations:
-            // * <symbol> is not supported with mixed text content or together with other text elements (e.g. <rend>)
-            // * <symbol> is not supported within editorial markup
             success = this->ReadSymbol(parent, xmlElement);
         }
         else if (xmlElement.text()) {
@@ -6686,7 +6875,44 @@ bool MEIInput::ReadTextChildren(Object *parent, pugi::xml_node parentNode, Objec
         else {
             LogWarning("Element <%s> is unknown and will be ignored", xmlElement.name());
         }
-        i++;
+        ++i;
+    }
+    return success;
+}
+
+bool MEIInput::ReadSymbolDefChildren(Object *parent, pugi::xml_node parentNode, Object *filter)
+{
+    bool success = true;
+    pugi::xml_node xmlElement;
+    std::string elementName;
+    for (xmlElement = parentNode.first_child(); xmlElement; xmlElement = xmlElement.next_sibling()) {
+        if (!success) {
+            break;
+        }
+        this->NormalizeAttributes(xmlElement);
+        elementName = std::string(xmlElement.name());
+        if (filter && !this->IsAllowed(elementName, filter)) {
+            std::string meiElementName = filter->GetClassName();
+            std::transform(meiElementName.begin(), meiElementName.begin() + 1, meiElementName.begin(), ::tolower);
+            LogWarning("Element <%s> within <%s> is not supported and will be ignored ", xmlElement.name(),
+                meiElementName.c_str());
+            continue;
+        }
+        // content
+        else if (elementName == "graphic") {
+            success = this->ReadGraphic(parent, xmlElement);
+        }
+        else if (elementName == "svg") {
+            success = this->ReadSvg(parent, xmlElement);
+        }
+        // xml comment
+        else if (elementName == "") {
+            success = this->ReadXMLComment(parent, xmlElement);
+        }
+        // unknown
+        else {
+            LogWarning("Element <%s> is unknown and will be ignored", xmlElement.name());
+        }
     }
     return success;
 }
@@ -6780,7 +7006,14 @@ bool MEIInput::ReadRend(Object *parent, pugi::xml_node rend)
 bool MEIInput::ReadSvg(Object *parent, pugi::xml_node svg)
 {
     Svg *vrvSvg = new Svg();
+    // Still read the @xml:id for handling the comments
     this->SetMeiID(svg, vrvSvg);
+
+    // Read the @id by hand
+    if (svg.attribute("id")) {
+        vrvSvg->SetID(svg.attribute("id").value());
+        svg.remove_attribute("id");
+    }
 
     if (std::string(svg.name()) == "svg") {
         vrvSvg->Set(svg);
@@ -6808,6 +7041,16 @@ bool MEIInput::ReadSymbol(Object *parent, pugi::xml_node symbol)
     return true;
 }
 
+bool MEIInput::ReadSymbolDef(Object *parent, pugi::xml_node symbolDef)
+{
+    SymbolDef *vrvSymbolDef = new SymbolDef();
+    this->SetMeiID(symbolDef, vrvSymbolDef);
+
+    parent->AddChild(vrvSymbolDef);
+    this->ReadUnsupportedAttr(symbolDef, vrvSymbolDef);
+    return ReadSymbolDefChildren(vrvSymbolDef, symbolDef);
+}
+
 bool MEIInput::ReadText(Object *parent, pugi::xml_node text, bool trimLeft, bool trimRight)
 {
     Text *vrvText = new Text();
@@ -6820,6 +7063,12 @@ bool MEIInput::ReadText(Object *parent, pugi::xml_node text, bool trimLeft, bool
     vrvText->SetText(str);
 
     parent->AddChild(vrvText);
+    return true;
+}
+
+bool MEIInput::ReadAltSymInterface(pugi::xml_node element, AltSymInterface *interface)
+{
+    interface->ReadAltSym(element);
     return true;
 }
 
@@ -6891,6 +7140,7 @@ bool MEIInput::ReadScoreDefInterface(pugi::xml_node element, ScoreDefInterface *
     interface->ReadDurationDefault(element);
     interface->ReadLyricStyle(element);
     interface->ReadMidiTempo(element);
+    interface->ReadMmTempo(element);
     interface->ReadMultinumMeasures(element);
     interface->ReadPianoPedals(element);
     return true;
@@ -7455,10 +7705,12 @@ bool MEIInput::ReadEditorialChildren(Object *parent, pugi::xml_node parentNode, 
     assert(dynamic_cast<EditorialElement *>(parent));
 
     if (level == EDITORIAL_TOPLEVEL) {
-        if (m_readingScoreBased)
+        if (m_readingScoreBased) {
             return this->ReadSectionChildren(parent, parentNode);
-        else
+        }
+        else {
             return this->ReadSystemChildren(parent, parentNode);
+        }
     }
     else if (level == EDITORIAL_SCOREDEF) {
         return this->ReadScoreDefChildren(parent, parentNode);
@@ -7580,12 +7832,10 @@ bool MEIInput::ReadTupletSpanAsTuplet(Measure *measure, pugi::xml_node tupletSpa
     int startIdx = startChild->GetIdx();
     int endIdx = endChild->GetIdx();
     // LogDebug("%d %d %s!", startIdx, endIdx, start->GetID().c_str());
-    int i;
-    for (i = endIdx; i >= startIdx; i--) {
+    for (int i = endIdx; i >= startIdx; --i) {
         LayerElement *element = dynamic_cast<LayerElement *>(parentLayer->DetachChild(i));
         if (element) tuplet->AddChild(element);
     }
-    tuplet->SetParent(parentLayer);
     parentLayer->InsertChild(tuplet, startIdx);
 
     return true;
@@ -7675,14 +7925,12 @@ void MEIInput::UpgradePageTo_5_0_0(Page *page)
     // Works only for single page files
 
     Score *score = new Score();
-    score->SetParent(page);
     page->InsertChild(score, 0);
 
     PageMilestoneEnd *scoreEnd = new PageMilestoneEnd(score);
     page->AddChild(scoreEnd);
 
     Mdiv *mdiv = new Mdiv();
-    mdiv->SetParent(page);
     page->InsertChild(mdiv, 0);
 
     PageMilestoneEnd *mdivEnd = new PageMilestoneEnd(mdiv);
@@ -7801,8 +8049,8 @@ void MEIInput::UpgradeMordentTo_4_0_0(pugi::xml_node mordent, Mordent *vrvMorden
 
 void MEIInput::UpgradeScoreDefElementTo_4_0_0(pugi::xml_node scoreDefElement, ScoreDefElement *vrvScoreDefElement)
 {
-    KeySig *keySig = dynamic_cast<KeySig *>(vrvScoreDefElement->FindDescendantByType(KEYSIG));
-    MeterSig *meterSig = dynamic_cast<MeterSig *>(vrvScoreDefElement->FindDescendantByType(METERSIG));
+    KeySig *keySig = vrv_cast<KeySig *>(vrvScoreDefElement->FindDescendantByType(KEYSIG));
+    MeterSig *meterSig = vrv_cast<MeterSig *>(vrvScoreDefElement->FindDescendantByType(METERSIG));
 
     if (scoreDefElement.attribute("key.sig.show")) {
         if (keySig) {
@@ -7921,7 +8169,7 @@ void MEIInput::UpgradePageTo_3_0_0(Page *page, Doc *doc)
     // LogDebug("PPUFactor: %f", m_PPUFactor);
 }
 
-bool MEIInput::ReadGraphic(Surface *parent, pugi::xml_node graphic)
+bool MEIInput::ReadGraphic(Object *parent, pugi::xml_node graphic)
 {
     assert(parent);
     Graphic *vrvGraphic = new Graphic();

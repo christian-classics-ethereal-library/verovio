@@ -75,7 +75,12 @@ int Hairpin::CalcHeight(const Doc *doc, int staffSize, char spanningType, const 
     int endY = doc->GetDrawingHairpinSize(staffSize, false);
 
     if (this->HasOpening()) {
-        endY = this->GetOpening() * doc->GetDrawingUnit(staffSize);
+        if (this->GetOpening().GetType() == MEASUREMENTTYPE_px) {
+            endY = this->GetOpening().GetPx();
+        }
+        else {
+            endY = this->GetOpening().GetVu() * doc->GetDrawingUnit(staffSize);
+        }
     }
 
     // Something is probably wrong before...
@@ -223,26 +228,6 @@ int Hairpin::PrepareFloatingGrps(FunctorParams *functorParams)
 
     // Only try to link them if start and end are resolved
     if (!this->GetStart() || !this->GetEnd()) return FUNCTOR_CONTINUE;
-
-    for (auto &dynam : params->m_dynams) {
-        if ((dynam->GetStart() == this->GetStart()) && (dynam->GetStaff() == this->GetStaff())) {
-            if (!m_leftLink) this->SetLeftLink(dynam);
-        }
-        else if ((dynam->GetStart() == this->GetEnd()) && (dynam->GetStaff() == this->GetStaff())) {
-            if (!m_rightLink) this->SetRightLink(dynam);
-        }
-    }
-
-    for (auto &hairpin : params->m_hairpins) {
-        if ((hairpin->GetEnd() == this->GetStart()) && (hairpin->GetStaff() == this->GetStaff())) {
-            if (!m_leftLink) this->SetLeftLink(hairpin);
-            if (!hairpin->GetRightLink()) hairpin->SetRightLink(this);
-        }
-        if ((hairpin->GetStart() == this->GetEnd()) && (hairpin->GetStaff() == this->GetStaff())) {
-            if (!hairpin->GetLeftLink()) hairpin->SetLeftLink(this);
-            if (!m_rightLink) this->SetRightLink(hairpin);
-        }
-    }
 
     params->m_hairpins.push_back(this);
 

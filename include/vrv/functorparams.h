@@ -56,6 +56,7 @@ class StaffAlignment;
 class StaffDef;
 class StemmedDrawingInterface;
 class Syl;
+class SymbolTable;
 class System;
 class SystemAligner;
 class Timemap;
@@ -1148,10 +1149,12 @@ public:
     {
         m_doc = doc;
         m_diameter = 0;
+        m_alignmentType = 0;
     }
 
     Doc *m_doc;
     int m_diameter;
+    int m_alignmentType;
 };
 
 //----------------------------------------------------------------------------
@@ -2123,6 +2126,20 @@ public:
     const MeterSig *m_meterSig;
     const Mensur *m_mensur;
     const Layer *m_layer;
+};
+
+//----------------------------------------------------------------------------
+// PrepareAltSymParams
+//----------------------------------------------------------------------------
+
+/**
+ * member 0: a pointer to the SymbolTable in the current score scoreDef
+ **/
+
+class PrepareAltSymParams : public FunctorParams {
+public:
+    PrepareAltSymParams() { m_symbolTable = NULL; }
+    SymbolTable *m_symbolTable;
 };
 
 //----------------------------------------------------------------------------

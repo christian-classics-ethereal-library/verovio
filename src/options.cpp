@@ -12,12 +12,14 @@
 #include <cassert>
 #include <fstream>
 #include <functional>
+#include <iterator>
 #include <sstream>
 
 //----------------------------------------------------------------------------
 
-#include "att.h"
+#include "attconverter.h"
 #include "vrv.h"
+#include "vrvdef.h"
 
 namespace vrv {
 
@@ -239,17 +241,30 @@ void OptionDbl::CopyTo(Option *option)
     *child = *this;
 }
 
-void OptionDbl::Init(double defaultValue, double minValue, double maxValue)
+void OptionDbl::Init(double defaultValue, double minValue, double maxValue, bool definitionFactor)
 {
     m_value = defaultValue;
     m_defaultValue = defaultValue;
     m_minValue = minValue;
     m_maxValue = maxValue;
+    m_definitionFactor = definitionFactor;
 }
 
 bool OptionDbl::SetValue(const std::string &value)
 {
-    return this->SetValue(std::stod(value));
+    // Convert string to double
+    double number = 0.0;
+    try {
+        number = std::stod(value);
+    }
+    catch (const std::exception &e) {
+        LogError("Unable to set parameter value %s for '%s'; conversion to double failed", value.c_str(),
+            this->GetKey().c_str());
+        return false;
+    }
+
+    // Check bounds and set the value
+    return this->SetValue(number);
 }
 
 std::string OptionDbl::GetStrValue() const
@@ -265,6 +280,16 @@ std::string OptionDbl::GetDefaultStrValue() const
 bool OptionDbl::SetValueDbl(double value)
 {
     return this->SetValue(value);
+}
+
+double OptionDbl::GetValue() const
+{
+    return (m_definitionFactor) ? m_value * DEFINITION_FACTOR : m_value;
+}
+
+double OptionDbl::GetUnfactoredValue() const
+{
+    return m_value;
 }
 
 bool OptionDbl::SetValue(double value)
@@ -315,7 +340,19 @@ bool OptionInt::SetValueDbl(double value)
 
 bool OptionInt::SetValue(const std::string &value)
 {
-    return this->SetValue(std::stoi(value));
+    // Convert string to int
+    int number = 0;
+    try {
+        number = std::stoi(value);
+    }
+    catch (const std::exception &e) {
+        LogError("Unable to set parameter value %s for '%s'; conversion to integer failed", value.c_str(),
+            this->GetKey().c_str());
+        return false;
+    }
+
+    // Check bounds and set the value
+    return this->SetValue(number);
 }
 
 std::string OptionInt::GetStrValue() const
@@ -426,28 +463,12 @@ bool OptionArray::SetValue(const std::string &value)
 
 std::string OptionArray::GetStrValue() const
 {
-    std::stringstream ss;
-    int i;
-    for (i = 0; i < (int)m_values.size(); ++i) {
-        if (i != 0) {
-            ss << ", ";
-        }
-        ss << "\"" << m_values.at(i) << "\"";
-    }
-    return ss.str();
+    return this->GetStr(m_values);
 }
 
 std::string OptionArray::GetDefaultStrValue() const
 {
-    std::stringstream ss;
-    int i;
-    for (i = 0; i < (int)m_defaultValues.size(); ++i) {
-        if (i != 0) {
-            ss << ", ";
-        }
-        ss << "\"" << m_defaultValues.at(i) << "\"";
-    }
-    return ss.str();
+    return this->GetStr(m_defaultValues);
 }
 
 bool OptionArray::SetValue(std::vector<std::string> const &values)
@@ -466,6 +487,20 @@ void OptionArray::Reset()
 bool OptionArray::IsSet() const
 {
     return !m_values.empty();
+}
+
+std::string OptionArray::GetStr(const std::vector<std::string> &values) const
+{
+    std::stringstream ss;
+    int i = 0;
+    for (std::string const &value : values) {
+        if (i != 0) {
+            ss << ", ";
+        }
+        ss << "\"" << value << "\"";
+        ++i;
+    }
+    return ss.str();
 }
 
 //----------------------------------------------------------------------------
@@ -556,8 +591,7 @@ std::string OptionIntMap::GetStrValuesAsStr(bool withoutDefault) const
 {
     std::vector<std::string> strValues = this->GetStrValues(withoutDefault);
     std::stringstream ss;
-    int i;
-    for (i = 0; i < (int)strValues.size(); ++i) {
+    for (int i = 0; i < (int)strValues.size(); ++i) {
         if (i != 0) {
             ss << ", ";
         }
@@ -595,7 +629,7 @@ void OptionStaffrel::Init(data_STAFFREL defaultValue)
 
 bool OptionStaffrel::SetValue(const std::string &value)
 {
-    Att converter;
+    AttConverter converter;
     data_STAFFREL staffrel = converter.StrToStaffrel(value);
     if (staffrel == STAFFREL_NONE) {
         LogError("Parameter '%s' not valid", value.c_str());
@@ -607,13 +641,13 @@ bool OptionStaffrel::SetValue(const std::string &value)
 
 std::string OptionStaffrel::GetStrValue() const
 {
-    Att converter;
+    AttConverter converter;
     return converter.StaffrelToStr(m_value);
 }
 
 std::string OptionStaffrel::GetDefaultStrValue() const
 {
-    Att converter;
+    AttConverter converter;
     return converter.StaffrelToStr(m_defaultValue);
 }
 
@@ -897,7 +931,7 @@ Options::Options()
 
     m_logLevel.SetInfo("Log level", "Set the log level: \"off\", \"error\", \"warning\", \"info\", or \"debug\"");
     m_logLevel.Init("warning");
-    m_logLevel.SetKey("log-level");
+    m_logLevel.SetKey("logLevel");
     m_logLevel.SetShortOption('l', true);
     m_baseOptions.AddOption(&m_logLevel);
 
@@ -925,8 +959,9 @@ Options::Options()
     m_scale.SetShortOption('s', false);
     m_baseOptions.AddOption(&m_scale);
 
-    m_outputTo.SetInfo(
-        "Output to", "Select output format to: \"mei\", \"mei-pb\", \"mei-basic\", \"svg\", or \"midi\"");
+    m_outputTo.SetInfo("Output to",
+        "Select output format to: \"mei\", \"mei-pb\", \"mei-basic\", \"svg\", \"midi\", \"timemap\", \"humdrum\" or "
+        "\"pae\"");
     m_outputTo.Init("svg");
     m_outputTo.SetKey("outputTo");
     m_outputTo.SetShortOption('t', true);
@@ -1004,6 +1039,10 @@ Options::Options()
     m_humType.SetInfo("Humdrum type", "Include type attributes when importing from Humdrum");
     m_humType.Init(false);
     this->Register(&m_humType, "humType", &m_general);
+
+    m_incip.SetInfo("Incip", "Read <incip> elements as data input");
+    m_incip.Init(false);
+    this->Register(&m_incip, "incip", &m_general);
 
     m_justifyVertically.SetInfo("Justify vertically", "Justify spacing vertically to fill the page");
     m_justifyVertically.Init(false);
@@ -1153,7 +1192,7 @@ Options::Options()
     this->Register(&m_svgAdditionalAttribute, "svgAdditionalAttribute", &m_general);
 
     m_unit.SetInfo("Unit", "The MEI unit (1⁄2 of the distance between the staff lines)");
-    m_unit.Init(9, 6, 20, true);
+    m_unit.Init(9.0, 4.5, 12.0, true);
     this->Register(&m_unit, "unit", &m_general);
 
     m_useBraceGlyph.SetInfo("Use Brace Glyph", "Use brace glyph from current font");
@@ -1381,6 +1420,11 @@ Options::Options()
     m_octaveLineThickness.Init(0.20, 0.10, 1.00);
     this->Register(&m_octaveLineThickness, "octaveLineThickness", &m_generalLayout);
 
+    m_octaveNoSpanningParentheses.SetInfo("No parentheses on spanning octaves",
+        "Do not enclose octaves that are spanning over systems with parentheses.");
+    m_octaveNoSpanningParentheses.Init(false);
+    this->Register(&m_octaveNoSpanningParentheses, "octaveNoSpanningParentheses", &m_generalLayout);
+
     m_pedalLineThickness.SetInfo("Pedal line thickness", "The thickness of the line used for piano pedaling");
     m_pedalLineThickness.Init(0.20, 0.10, 1.00);
     this->Register(&m_pedalLineThickness, "pedalLineThickness", &m_generalLayout);
@@ -1520,6 +1564,11 @@ Options::Options()
     m_choiceXPathQuery.Init();
     this->Register(&m_choiceXPathQuery, "choiceXPathQuery", &m_selectors);
 
+    m_loadSelectedMdivOnly.SetInfo(
+        "Load selected Mdiv only", "Load only the selected mdiv; the content of the other is skipped");
+    m_loadSelectedMdivOnly.Init(false);
+    this->Register(&m_loadSelectedMdivOnly, "loadSelectedMdivOnly", &m_selectors);
+
     m_mdivAll.SetInfo("Mdiv all", "Load and render all <mdiv> elements in the MEI files");
     m_mdivAll.Init(false);
     this->Register(&m_mdivAll, "mdivAll", &m_selectors);
@@ -1585,6 +1634,10 @@ Options::Options()
     m_bottomMarginHarm.SetInfo("Bottom margin harm", "The margin for harm in MEI units");
     m_bottomMarginHarm.Init(1.0, 0.0, 10.0);
     this->Register(&m_bottomMarginHarm, "bottomMarginHarm", &m_elementMargins);
+
+    m_bottomMarginOctave.SetInfo("Bottom margin octave", "The margin for octave in MEI units");
+    m_bottomMarginOctave.Init(1.0, 0.0, 10.0);
+    this->Register(&m_bottomMarginOctave, "bottomMarginOctave", &m_elementMargins);
 
     m_bottomMarginPgHead.SetInfo("Bottom margin header", "The margin for header in MEI units");
     m_bottomMarginPgHead.Init(2.0, 0.0, 24.0);
@@ -1858,8 +1911,9 @@ void Options::Sync()
         else if (m_engravingDefaults.HasValue({ pair.first })) {
             jsonValue = m_engravingDefaults.GetDblValue({ pair.first });
         }
-        else
+        else {
             continue;
+        }
 
         if (!pair.second->IsSet()) {
             pair.second->SetValueDbl(jsonValue * 2.0); // convert from staff spaces to MEI units
@@ -1893,7 +1947,7 @@ jsonxx::Object Options::GetBaseOptGrp()
     grpBase << "name" << m_baseOptions.GetLabel();
 
     const std::vector<Option *> *options = this->GetBaseOptions();
-    for (auto const &option : *options) {
+    for (Option *option : *options) {
         baseOpts << option->GetKey() << option->ToJson();
     }
 
